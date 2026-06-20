@@ -25,8 +25,8 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-// Region must match the Python function's @on_call(region=...).
-export const functions = getFunctions(app, "africa-south1");
+// Region must match the Python function's @on_call(region=...) / FUNCTIONS_REGION.
+export const functions = getFunctions(app, env.VITE_FUNCTIONS_REGION ?? "africa-south1");
 export const googleProvider = new GoogleAuthProvider();
 
 if (useEmulators) {

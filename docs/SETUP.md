@@ -42,14 +42,19 @@ This writes `.firebaserc`. (The default alias stays a `demo-*` project for emula
 
 ## 3. Set your region
 
-The code ships with one region. Replace it with **`<your-region>`** in two places:
+The region is **one setting per side** (both default to `africa-south1`, so if that
+is your region you can skip this step):
 
-- `functions/main.py` - every `region="..."` on the `@https_fn.on_call` /
-  `@https_fn.on_request` decorators.
-- `web/src/firebase.ts` - the `getFunctions(app, "...")` call.
+- **Backend:** `FUNCTIONS_REGION` in `functions/.env` (copy the example):
 
-(Find-and-replace the old region string across both files.) Firestore and Storage
-already use the region you chose at creation.
+  ```bash
+  cp functions/.env.example functions/.env    # then set FUNCTIONS_REGION=<your-region>
+  ```
+
+- **Web:** `VITE_FUNCTIONS_REGION` in `web/.env.production` (you create that in step 4).
+
+Set both to **`<your-region>`**. They must match each other and the region you chose
+for Firestore/Storage in step 1. No source-file editing needed.
 
 ## 4. Web config
 
@@ -66,6 +71,7 @@ VITE_FIREBASE_API_KEY=...
 VITE_FIREBASE_AUTH_DOMAIN=<your-project-id>.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=<your-project-id>
 VITE_FIREBASE_APP_ID=...
+VITE_FUNCTIONS_REGION=<your-region>   # same value as FUNCTIONS_REGION (step 3)
 ```
 
 These web keys are public by design - they identify the project, they are not
@@ -110,8 +116,9 @@ confirm the columns (see [PARSERS.md](PARSERS.md)); after that it's automatic.
 
 ## Troubleshooting
 
-- **Functions won't deploy** - confirm the project is on **Blaze** and the region
-  in `functions/main.py` matches a [supported Functions region](https://firebase.google.com/docs/functions/locations).
-- **Web can't reach functions** - the region in `web/src/firebase.ts` must match
-  `functions/main.py`.
+- **Functions won't deploy** - confirm the project is on **Blaze** and that
+  `FUNCTIONS_REGION` (in `functions/.env`) is a
+  [supported Functions region](https://firebase.google.com/docs/functions/locations).
+- **Web can't reach functions** - `VITE_FUNCTIONS_REGION` (web) must match
+  `FUNCTIONS_REGION` (backend).
 - **Emulators won't start** - you need **JDK 21+** (`java -version`).
