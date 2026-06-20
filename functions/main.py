@@ -48,11 +48,16 @@ from core.storage import store_original
 
 initialize_app()
 
+# Cloud Functions region - the ONE place to change it. Override per deployment with
+# the FUNCTIONS_REGION env var (set it in functions/.env); defaults to africa-south1.
+# Must match the web client's VITE_FUNCTIONS_REGION (see web/src/firebase.ts).
+_REGION = os.environ.get("FUNCTIONS_REGION", "africa-south1")
+
 _BATCH_LIMIT = 400  # Firestore caps a write batch at 500.
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.GB_1,  # full-history CSVs can be tens of thousands of rows
     timeout_sec=540,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
@@ -253,7 +258,7 @@ def import_csv(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_512,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )
@@ -501,7 +506,7 @@ def _process_pdf(db, uid, pdf_bytes, *, filename, password=None, force=False,
             "profile": _profile_summary(learned_profile, profile_state)}
 
 
-@https_fn.on_request(region="africa-south1", memory=options.MemoryOption.MB_512)
+@https_fn.on_request(region=_REGION, memory=options.MemoryOption.MB_512)
 def ingest_email(req: https_fn.Request):
     """Email auto-import endpoint, called by the Gmail Apps Script. Gated by a
     shared secret; writes under the configured owner uid via the same PDF
@@ -539,7 +544,7 @@ def ingest_email(req: https_fn.Request):
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_256,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )
@@ -606,7 +611,7 @@ def add_transaction(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_256,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )
@@ -667,7 +672,7 @@ def set_category(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_256,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )
@@ -690,7 +695,7 @@ def delete_transaction(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_256,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )
@@ -715,7 +720,7 @@ def set_statement_password(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_512,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )
@@ -747,7 +752,7 @@ def revert_import(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_512,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )
@@ -764,7 +769,7 @@ def export_ledger(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call(
-    region="africa-south1",
+    region=_REGION,
     memory=options.MemoryOption.MB_512,
     cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
 )

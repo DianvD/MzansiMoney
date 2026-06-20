@@ -14,6 +14,21 @@ data space (enforced by `firestore.rules`).
 > and in one config line. Ship it as MzansiMoney, switch to the BraaiBucks skin, or
 > give it your own name, accent colour, and Gmail label. See `web/src/branding/`.
 
+## Quickstart (local, no cloud account)
+
+Run the whole app on Firebase emulators - no Firebase project, no billing:
+
+```bash
+git clone https://github.com/DianvD/MzansiMoney.git && cd MzansiMoney
+./scripts/setup              # installs web + functions deps (Windows: scripts\setup.ps1)
+firebase emulators:start     # terminal 1
+cd web && npm run dev        # terminal 2  ->  http://localhost:5173
+```
+
+Prerequisites: Node 18+, Python 3.12, JDK 21, and the Firebase CLI
+(`npm i -g firebase-tools`). Full walkthrough: [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md).
+To deploy your own copy to Firebase, see [docs/SETUP.md](docs/SETUP.md).
+
 ## What it does
 
 - **Import**: CSV, Excel, and PDF statements. A generic, **self-learning parser**

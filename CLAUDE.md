@@ -79,8 +79,10 @@ skins + `DEFAULT_SKIN_ID` (the one line a self-hoster edits). Theming swaps Tail
 in the in-app Appearance settings.
 
 ## Region
-The code ships configured for `africa-south1`. A self-hoster in another region replaces
-that string in `functions/main.py` and `web/src/firebase.ts` (see docs/SETUP.md).
+Defaults to `africa-south1`, configurable in ONE setting per side (no source edits):
+`FUNCTIONS_REGION` env (read in `functions/main.py` as `_REGION`) and
+`VITE_FUNCTIONS_REGION` env (read in `web/src/firebase.ts`). They must match. See
+docs/SETUP.md. The decorators use `region=_REGION`, so never hardcode a region string.
 
 ## Tests
 `functions/run_tests.py` runs the offline suite (parsers, profiles, PDF table, dedup,

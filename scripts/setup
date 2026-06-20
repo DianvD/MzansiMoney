@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# One-shot dev setup: install web + functions dependencies.
+# Usage:  ./scripts/setup        (macOS / Linux / Git Bash)
+#         Windows PowerShell ->  scripts\setup.ps1
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "==> Web dependencies (npm install)"
+( cd "$root/web" && npm install )
+
+echo "==> Functions dependencies (python venv + pip)"
+cd "$root/functions"
+python -m venv venv
+# venv layout differs: POSIX uses bin/, Windows (Git Bash) uses Scripts/
+if [ -x "venv/bin/pip" ]; then PIP="venv/bin/pip"; else PIP="venv/Scripts/pip"; fi
+"$PIP" install -q -r requirements.txt
+
+cat <<'DONE'
+
+Setup complete. To run locally on the Firebase emulators:
+  1) firebase emulators:start      (terminal 1)
+  2) cd web && npm run dev         (terminal 2)  ->  http://localhost:5173
+
+Needs the Firebase CLI (npm i -g firebase-tools) and JDK 21 for the emulators.
+DONE

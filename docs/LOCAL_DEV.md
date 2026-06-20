@@ -17,14 +17,26 @@ data. The web app auto-connects to the emulators in `vite dev`.
     ```
 - **Firebase CLI**: `npm i -g firebase-tools`
 
-## 1. Backend deps (the emulator runs the function from this venv)
+## 1. Install dependencies
+
+One command from the repo root installs both the web and functions deps (the
+emulator runs the function from the functions venv):
 
 ```bash
+./scripts/setup          # macOS / Linux / Git Bash
+scripts\setup.ps1        # Windows PowerShell
+```
+
+<details><summary>Or do it manually</summary>
+
+```bash
+cd web && npm install && cd ..
 cd functions
 python -m venv venv
 venv\Scripts\pip install -r requirements.txt      # Windows
 # source venv/bin/activate && pip install -r requirements.txt   # macOS/Linux
 ```
+</details>
 
 ## 2. Start the emulators (from the repo root)
 
@@ -42,9 +54,7 @@ project alias, so nothing touches a real project.
 ## 3. Start the web app
 
 ```bash
-cd web
-npm install
-npm run dev          # http://localhost:5173
+cd web && npm run dev          # http://localhost:5173
 ```
 
 Sign in with the emulator's Google account, open **Import**, drop a CSV from
@@ -52,16 +62,12 @@ Sign in with the emulator's Google account, open **Import**, drop a CSV from
 
 ## Tests
 
-```bash
-# Offline (no Firebase): parser, adaptive profiles, dedup, classifier/bills,
-# home-loan, account identity, recovery tokens
-cd functions && venv\Scripts\python run_tests.py
+The offline suite needs no Firebase or network - it covers the parser, adaptive
+profiles, dedup, classifier/bills, home-loan, account identity, and recovery tokens:
 
-# Live end-to-end (emulators must be running)
-venv\Scripts\python _emulator_e2e.py            # CSV dedup / needs_review / integrity
-venv\Scripts\python _emulator_profiles_e2e.py   # adaptive parser: learn → reuse → correct
-venv\Scripts\python _emulator_recovery_e2e.py   # undo / backup / audit (needs storage emulator)
-venv\Scripts\python _emulator_docs_e2e.py       # PDF: bills, dedup, encrypted, rules
+```bash
+cd functions && venv\Scripts\python run_tests.py     # Windows
+# cd functions && venv/bin/python run_tests.py       # macOS/Linux
 ```
 
 Web typecheck + production build:
@@ -73,8 +79,5 @@ cd web && npm run build       # tsc -b && vite build
 ## Notes
 
 - Emulator data is in-memory and disappears on restart - that's the point.
-- The `*_e2e.py` scripts sign up a throwaway user in the Auth emulator and talk to
-  the Functions/Firestore emulators over HTTP, then assert on what actually landed
-  in Firestore.
 - If a port is stuck after a crash, kill the leftover process holding it before
   restarting the emulators.
