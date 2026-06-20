@@ -105,7 +105,12 @@ export async function unlockWithBiometric(uid: string): Promise<boolean> {
         timeout: 60000,
       },
     });
-    return true; // user-verification ceremony succeeded
+    // The local WebAuthn ceremony proves the device owner is present, but we also
+    // require a live authenticated server round-trip so biometric unlock - like the
+    // PIN and Google sign-in - always needs a network connection (it cannot be used
+    // to open the app while offline).
+    await callPinStatus({});
+    return true;
   } catch {
     return false;
   }
