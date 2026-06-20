@@ -1,0 +1,87 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      // The user's own profile doc.
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+
+      // Financial data is OWNED BY THE BACKEND. The import pipeline writes it via
+      // the Admin SDK (which bypasses these rules); clients may read but never
+      // write it directly, so a compromised client cannot inject or edit
+      // transactions, bills, or the dedup ledger. Edits go through Cloud Functions.
+      match /transactions/{txnId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+      match /documents/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+      match /bills/{billId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+      match /importJobs/{jobId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+      // Learned parse profiles (how each bank's export is laid out). Written by
+      // the import pipeline (Admin SDK); the client reads them and proposes
+      // corrections through the import_csv callable, never by writing directly.
+      match /parseProfiles/{shapeId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Recovery audit trail + snapshot manifests. Written by recovery Cloud
+      // Functions (Admin SDK); the client reads them to show backup/undo history.
+      match /recoveryLog/{actionId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+      match /snapshots/{snapshotId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Encrypted secrets (statement password). Backend-only: the client can
+      // neither read the ciphertext nor write it. Set via a Cloud Function.
+      match /secure/{docId} {
+        allow read, write: if false;
+      }
+
+      // Client-owned UI state (hidden-balance prefs, etc.) - safe to write.
+      match /settings/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // User-DECLARED data (not derived ledger truth): manual assets/liabilities
+      // for net worth, and savings goals. Safe for the owner to write directly;
+      // they are not dedup-sensitive or injectable into the transaction ledger.
+      match /holdings/{holdingId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /goals/{goalId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Anything else under the user: readable by the owner, writes denied by
+      // default (add an explicit rule above when a new client-write need appears).
+      match /{document=**} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

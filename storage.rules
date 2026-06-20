@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// Original financial documents are private to their owner. The backend writes
+// them via the Admin SDK (which bypasses these rules); clients may read their own
+// archive but never write.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{userId}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

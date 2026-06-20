@@ -1,0 +1,39 @@
+# Node / web
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+web/.env
+web/.env.local
+
+# Python functions
+functions/venv/
+functions/.venv/
+functions/__pycache__/
+functions/**/__pycache__/
+*.pyc
+
+# Firebase
+.firebase/
+*-debug.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Secrets / service accounts
+sa-key.json
+**/sa-key.json
+*.serviceaccount.json
+
+# Real personal financial documents - NEVER commit these
+examples/
+emulator.log
+
+# Function runtime config (secrets) - never commit
+functions/.env
+functions/.env.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.stackdump

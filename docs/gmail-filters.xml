@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MzansiMoney - Gmail filters that auto-apply the "MzansiMoney" label to your billers, so the
+  Apps Script (gmail-apps-script.gs) picks up their statements/invoices hourly
+  without you hand-labelling anything.
+
+  IMPORT
+    Gmail (web) → Settings (gear) → See all settings → Filters and Blocked
+    Addresses → Import filters → choose this file → Open → Create filters.
+    Tick "Also apply filter to matching conversations" to back-label existing mail.
+
+  Each filter matches a biller's sender domain AND requires an attachment (so
+  marketing mail doesn't clog the label). VERIFY/ADJUST the `from` domains against
+  your actual biller emails - these are best guesses for SA billers; add any I've
+  missed. The "MzansiMoney" label must exist first (Gmail creates it on import if not).
+-->
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:apps="http://schemas.google.com/apps/2006">
+  <title>MzansiMoney biller filters</title>
+
+  <entry>
+    <category term="filter"></category>
+    <title>MzansiMoney: Nedbank (statements)</title>
+    <apps:property name="from" value="nedbank.co.za"/>
+    <apps:property name="hasTheWord" value="has:attachment"/>
+    <apps:property name="label" value="MzansiMoney"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+
+  <entry>
+    <category term="filter"></category>
+    <title>MzansiMoney: Vodacom</title>
+    <apps:property name="from" value="vodacom.co.za"/>
+    <apps:property name="hasTheWord" value="has:attachment"/>
+    <apps:property name="label" value="MzansiMoney"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+
+  <entry>
+    <category term="filter"></category>
+    <title>MzansiMoney: Axxess (internet)</title>
+    <apps:property name="from" value="axxess.co.za"/>
+    <apps:property name="hasTheWord" value="has:attachment"/>
+    <apps:property name="label" value="MzansiMoney"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+
+  <entry>
+    <category term="filter"></category>
+    <title>MzansiMoney: City of Cape Town (municipal)</title>
+    <apps:property name="from" value="capetown.gov.za"/>
+    <apps:property name="hasTheWord" value="has:attachment"/>
+    <apps:property name="label" value="MzansiMoney"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+
+  <entry>
+    <category term="filter"></category>
+    <title>MzansiMoney: Estate / HOA levy</title>
+    <apps:property name="from" value="your-estate-agent.co.za"/>
+    <apps:property name="hasTheWord" value="has:attachment levy"/>
+    <apps:property name="label" value="MzansiMoney"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+
+  <entry>
+    <category term="filter"></category>
+    <title>MzansiMoney: Discovery</title>
+    <apps:property name="from" value="discovery.co.za"/>
+    <apps:property name="hasTheWord" value="has:attachment"/>
+    <apps:property name="label" value="MzansiMoney"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+
+  <entry>
+    <category term="filter"></category>
+    <title>MzansiMoney: Sanlam</title>
+    <apps:property name="from" value="sanlam.co.za"/>
+    <apps:property name="hasTheWord" value="has:attachment"/>
+    <apps:property name="label" value="MzansiMoney"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+</feed>

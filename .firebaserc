@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "demo-mzansimoney",
+    "prod": "your-project-id"
+  }
+}
