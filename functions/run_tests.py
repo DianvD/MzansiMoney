@@ -11,7 +11,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 TESTS = ["_smoketest.py", "_parse_test.py", "_profile_test.py", "_pdftable_test.py",
          "_dedup_test.py", "_homeloan_test.py", "_account_test.py",
-         "_recovery_test.py"]
+         "_recovery_test.py", "_applock_test.py"]
 
 
 def main() -> int:

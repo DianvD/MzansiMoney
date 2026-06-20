@@ -3,7 +3,7 @@ import {
   type ReactNode,
 } from "react";
 import {
-  biometricAvailable, biometricEnrolled, enrollBiometric, getSecurity,
+  biometricAvailable, biometricEnrolled, enrollBiometric, hasPin,
   setPin, unlockWithBiometric, verifyPin,
 } from "../lib/lock";
 import { useBranding } from "../branding/context";
@@ -21,8 +21,8 @@ export default function LockGate({ uid, children }: { uid: string; children: Rea
   useEffect(() => {
     let alive = true;
     setPhase("loading");
-    getSecurity(uid).then((sec) => {
-      if (alive) setPhase(sec ? "locked" : "setup");
+    hasPin(uid).then((has) => {
+      if (alive) setPhase(has ? "locked" : "setup");
     }).catch(() => alive && setPhase("setup"));
     return () => { alive = false; };
   }, [uid]);

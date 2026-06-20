@@ -1,0 +1,11 @@
+# Dev-only tooling for local security scanning. NOT installed in the deployed
+# Cloud Functions runtime (which uses requirements.txt). Install into your venv:
+#
+#   functions/venv/Scripts/pip install -r functions/requirements-dev.txt   # Windows
+#   pip install -r functions/requirements-dev.txt                          # *nix
+#
+# See docs/SECURITY-SCANNING.md for how to run the scans.
+
+bandit[sarif]==1.7.9   # Python SAST (mirrors the CI version)
+pip-audit==2.7.3       # dependency CVE audit against requirements.txt
+semgrep==1.78.0        # multi-ruleset SAST + the custom rules in .semgrep.yml

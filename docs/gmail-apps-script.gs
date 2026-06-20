@@ -38,18 +38,27 @@ function importStatements() {
         const isPdf = att.getContentType() === 'application/pdf' || /\.pdf$/i.test(name);
         if (!isPdf) return;
         try {
+          const b64 = Utilities.base64Encode(att.getBytes());
+          // Per-ATTACHMENT key (message id + filename), not just the message id -
+          // otherwise a single email with two PDFs would have its second
+          // attachment dropped as a "duplicate" by the intake dedup.
+          const gmailMessageId = id + ':' + name;
+          // Authenticate with an HMAC over (timestamp . gmailMessageId . payload)
+          // so the shared secret never travels on the wire, a captured request
+          // can't be replayed once the timestamp goes stale (~5 min server skew),
+          // and the dedup key can't be forged independently of the signature.
+          const ts = Date.now();
+          const sig = signHmacSha256(SECRET, ts + '.' + gmailMessageId + '.' + b64);
           const res = UrlFetchApp.fetch(ENDPOINT, {
             method: 'post',
             contentType: 'application/json',
             muteHttpExceptions: true,
             payload: JSON.stringify({
-              secret: SECRET,
+              ts: ts,
+              sig: sig,
               filename: name,
-              // Per-ATTACHMENT key (message id + filename), not just the message id -
-              // otherwise a single email with two PDFs would have its second
-              // attachment dropped as a "duplicate" by the intake dedup.
-              gmailMessageId: id + ':' + name,
-              pdfBase64: Utilities.base64Encode(att.getBytes())
+              gmailMessageId: gmailMessageId,
+              pdfBase64: b64
             })
           });
           Logger.log(name + ' -> ' + res.getResponseCode() + ' ' + res.getContentText());
@@ -61,4 +70,12 @@ function importStatements() {
       props.setProperty('done_' + id, '1'); // mark processed (even if no PDF)
     });
   });
+}
+
+// Lower-case hex HMAC-SHA256, matching Python's hmac.new(...).hexdigest() server side.
+function signHmacSha256(key, value) {
+  const raw = Utilities.computeHmacSha256Signature(value, key);
+  return raw.map(function (b) {
+    return ('0' + (b & 0xFF).toString(16)).slice(-2);
+  }).join('');
 }

@@ -71,13 +71,16 @@ def derive_merchant(description: str) -> str:
 
 
 def txn_hash(date: datetime, amount: float, direction: str, description: str) -> str:
-    """Stable id for a transaction, used as the Firestore doc id.
+    """A stable content hash for a normalized transaction.
 
-    Using the hash as the document id makes imports idempotent: re-uploading the
-    same statement overwrites identical rows instead of duplicating them.
+    Note: this is NOT the live Firestore doc id - the ingest pipeline overwrites
+    the ``hash`` field with the balance-aware ``transaction_fingerprint`` (see
+    identity.py), and manual entries use their own id. This is a content-address
+    only (not a security primitive), but we use SHA-256 anyway for consistency
+    with the rest of the codebase and to keep SAST scanners happy.
     """
     key = f"{date.date().isoformat()}|{amount:.2f}|{direction}|{(description or '').strip().lower()}"
-    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def normalize(

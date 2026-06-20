@@ -1,0 +1,251 @@
+name: security
+
+# Professional-grade security scanning for MzansiMoney.
+# Runs SAST (CodeQL, Bandit, Semgrep), dependency CVE scanning (pip-audit,
+# npm audit, dependency-review), and secret scanning (gitleaks).
+#
+# Design notes:
+#   - Least-privilege: the top-level token is read-only; jobs that upload SARIF
+#     opt into `security-events: write` individually.
+#   - Pinned action versions (tags) for supply-chain hygiene.
+#   - `continue-on-error` is used ONLY for SARIF-producing scanners whose findings
+#     surface in the Security tab and should not hard-block the whole matrix.
+#     pip-audit and `npm audit` DO fail the build on high/critical.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    # Weekly, Mondays 06:00 UTC.
+    - cron: "0 6 * * 1"
+
+# Default to read-only; jobs widen scope as needed.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CodeQL — JavaScript/TypeScript (the web/ frontend)
+  # ---------------------------------------------------------------------------
+  codeql:
+    name: CodeQL (JS/TS)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # CodeQL needs GitHub code scanning, which requires Advanced Security on
+      # PRIVATE repos. These steps are best-effort (continue-on-error) so a
+      # private repo without GHAS doesn't show a red check; on public repos they
+      # run normally and upload to the Security tab.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        continue-on-error: true
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+        continue-on-error: true
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        continue-on-error: true
+        with:
+          category: "/language:javascript-typescript"
+
+  # ---------------------------------------------------------------------------
+  # Bandit — Python SAST over functions/
+  # ---------------------------------------------------------------------------
+  bandit:
+    name: Bandit (Python SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit
+        run: pip install "bandit[sarif]==1.7.9"
+
+      - name: Run Bandit (gate + SARIF)
+        # Scan production code only: exclude venv and every dev/test helper
+        # (*/_*.py covers _*_test.py + the _emulator_*/_smoketest/_dump/_migrate/
+        # _classify_examples scripts) plus the admin load_to_prod.py.
+        # This is a HARD GATE - bandit exits non-zero on any finding, so it fails
+        # the build even on a private repo without Advanced Security.
+        run: |
+          bandit -c pyproject.toml -r functions \
+            -x '*/venv/*,*/.venv/*,*/__pycache__/*,*/_*.py,*/load_to_prod.py,*/run_tests.py' \
+            -f sarif -o bandit.sarif
+
+      - name: Upload Bandit SARIF
+        # Best-effort: only succeeds where code scanning is available (public, or
+        # private + GHAS). Never fails the build.
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: bandit.sarif
+          category: bandit
+
+  # ---------------------------------------------------------------------------
+  # Semgrep — multi-ruleset SAST + custom app rules
+  # ---------------------------------------------------------------------------
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:1.78.0
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep (SARIF)
+        # Informational (non-blocking): findings upload to the Security tab on
+        # repos with code scanning. Bandit is the hard Python-SAST gate; promote
+        # this to a gate (add --error, drop continue-on-error) once the full
+        # ruleset is verified clean in CI.
+        continue-on-error: true
+        # .semgrep.yml holds the custom app rules; the p/* and OWASP rulesets are
+        # pulled from the Semgrep registry here.
+        run: |
+          semgrep scan \
+            --config .semgrep.yml \
+            --config p/ci \
+            --config p/python \
+            --config p/javascript \
+            --config p/secrets \
+            --config p/owasp-top-ten \
+            --sarif --output semgrep.sarif \
+            --metrics off
+        env:
+          SEMGREP_RULES: ""
+
+      - name: Upload Semgrep SARIF
+        # Best-effort (see Bandit note). Never fails the build.
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # ---------------------------------------------------------------------------
+  # pip-audit — Python dependency CVEs (fails on any vuln)
+  # ---------------------------------------------------------------------------
+  pip-audit:
+    name: pip-audit (Python deps)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run pip-audit
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: functions/requirements.txt
+          require-hashes: false
+
+  # ---------------------------------------------------------------------------
+  # npm audit — production deps, fails on high/critical
+  # ---------------------------------------------------------------------------
+  npm-audit:
+    name: npm audit (web prod deps)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps (no scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Audit report (informational, all severities)
+        continue-on-error: true
+        run: npm audit --omit=dev || true
+
+      - name: Fail on high/critical
+        run: npm audit --omit=dev --audit-level=high
+
+  # ---------------------------------------------------------------------------
+  # gitleaks — secret scan over full history
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    name: gitleaks (secrets)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read  # gitleaks PR mode lists PR commits via the API
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # Required since gitleaks-action v2 for PR scans.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  # ---------------------------------------------------------------------------
+  # dependency-review — PR-only diff of new/changed dependencies
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        # Requires the Dependency Graph (and Advanced Security on private repos).
+        # Best-effort so the check doesn't hard-fail where those aren't enabled;
+        # enable Dependency graph in repo Settings > Code security to activate it.
+        uses: actions/dependency-review-action@v4
+        continue-on-error: true
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure

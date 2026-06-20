@@ -8,17 +8,8 @@
  * using your already-signed-in device - which is the realistic threat - but isn't
  * a substitute for your Google account's own 2FA (your real first factor).
  */
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { db } from "../firebase";
-
-const PBKDF2_ITERATIONS = 210000;
-
-interface Security {
-  salt: string;
-  hash: string;
-  iterations: number;
-  version: number;
-}
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase";
 
 // ---- base64 helpers -----------------------------------------------------
 function bufToB64(buf: ArrayBuffer): string {
@@ -35,50 +26,25 @@ function b64urlToBuf(s: string): ArrayBuffer {
 }
 
 // ---- PIN ----------------------------------------------------------------
-async function derive(pin: string, saltB64: string, iterations: number): Promise<string> {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(pin),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: b64ToBuf(saltB64), iterations, hash: "SHA-256" },
-    keyMaterial,
-    256,
-  );
-  return bufToB64(bits);
+// The PIN hash is owned by the backend (secure/appLock, denied to clients); we
+// only ever send a PIN attempt to a Cloud Function and get a yes/no back. The
+// `uid` params are kept for call-site compatibility but the server uses auth.uid.
+const callSetPin = httpsCallable<{ pin: string }, { status: string }>(functions, "set_app_pin");
+const callVerifyPin = httpsCallable<{ pin: string }, { ok: boolean }>(functions, "verify_app_pin");
+const callPinStatus = httpsCallable<Record<string, never>, { hasPin: boolean }>(functions, "app_pin_status");
+
+export async function hasPin(_uid: string): Promise<boolean> {
+  const res = await callPinStatus({});
+  return !!res.data?.hasPin;
 }
 
-function securityRef(uid: string) {
-  return doc(db, "users", uid, "settings", "security");
+export async function setPin(_uid: string, pin: string): Promise<void> {
+  await callSetPin({ pin });
 }
 
-export async function getSecurity(uid: string): Promise<Security | null> {
-  const snap = await getDoc(securityRef(uid));
-  return snap.exists() ? (snap.data() as Security) : null;
-}
-
-export async function hasPin(uid: string): Promise<boolean> {
-  return (await getSecurity(uid)) !== null;
-}
-
-export async function setPin(uid: string, pin: string): Promise<void> {
-  const salt = bufToB64(crypto.getRandomValues(new Uint8Array(16)).buffer);
-  const hash = await derive(pin, salt, PBKDF2_ITERATIONS);
-  await setDoc(securityRef(uid), { salt, hash, iterations: PBKDF2_ITERATIONS, version: 1 });
-}
-
-export async function verifyPin(uid: string, pin: string): Promise<boolean> {
-  const sec = await getSecurity(uid);
-  if (!sec) return false;
-  const hash = await derive(pin, sec.salt, sec.iterations);
-  // Length-safe constant-ish comparison.
-  if (hash.length !== sec.hash.length) return false;
-  let diff = 0;
-  for (let i = 0; i < hash.length; i++) diff |= hash.charCodeAt(i) ^ sec.hash.charCodeAt(i);
-  return diff === 0;
+export async function verifyPin(_uid: string, pin: string): Promise<boolean> {
+  const res = await callVerifyPin({ pin });
+  return !!res.data?.ok;
 }
 
 // ---- Biometric (WebAuthn platform authenticator, per device) ------------

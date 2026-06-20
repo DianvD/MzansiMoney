@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
 import os
+import time
 import uuid
 from datetime import datetime
 
 from firebase_admin import firestore, initialize_app
 from firebase_functions import https_fn, options
 
+from core import applock
 from core.bills import classified_to_bill
 from core.categorize import categorize, merchant_key
 from core.classify import classify
@@ -54,6 +58,36 @@ initialize_app()
 _REGION = os.environ.get("FUNCTIONS_REGION", "africa-south1")
 
 _BATCH_LIMIT = 400  # Firestore caps a write batch at 500.
+_MAX_CSV_BYTES = 12 * 1024 * 1024  # per-import CSV cap (client chunks larger files)
+_MAX_PDF_BYTES = 15 * 1024 * 1024  # per-document PDF cap
+_EMAIL_INTAKE_SKEW_MS = 5 * 60 * 1000  # signed-request freshness window (replay guard)
+_MAX_EMAIL_BODY_BYTES = 24 * 1024 * 1024  # reject oversized intake bodies before parsing
+
+
+def _coerce_profile_mapping(raw):
+    """Validate a client-supplied role->column-index mapping. Rejects non-integer
+    and negative indices (a negative index would silently read row[-1] in the
+    parser) with a clean INVALID_ARGUMENT instead of an opaque 500."""
+    if not raw or not isinstance(raw, dict):
+        return None
+    out = {}
+    for role, col in raw.items():
+        if col is None or str(col) == "":
+            continue
+        try:
+            idx = int(col)
+        except (TypeError, ValueError):
+            raise https_fn.HttpsError(
+                https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+                f"profileMapping['{role}'] must be a column index (integer).",
+            )
+        if idx < 0:
+            raise https_fn.HttpsError(
+                https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+                f"profileMapping['{role}'] must be a non-negative column index.",
+            )
+        out[role] = idx
+    return out or None
 
 
 @https_fn.on_call(
@@ -77,6 +111,14 @@ def import_csv(req: https_fn.CallableRequest) -> dict:
             https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
             "csvText is required and must be a non-empty string.",
         )
+    # Bound the input so a single call can't exhaust memory/time (mirrors the
+    # 15 MB cap on the PDF path). The client already chunks big CSVs, so a
+    # legitimate chunk is well under this.
+    if len(csv_text.encode("utf-8", "ignore")) > _MAX_CSV_BYTES:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+            "CSV is too large (max 12 MB per import). Split it into smaller files.",
+        )
 
     institution = (data.get("institution") or "generic").strip().lower()
     source_document = (data.get("sourceDocument") or "manual-upload.csv").strip()
@@ -86,13 +128,7 @@ def import_csv(req: https_fn.CallableRequest) -> dict:
     preview_only = bool(data.get("previewOnly"))  # detect + return how we'd read it, write nothing
     confirm = bool(data.get("confirm"))  # client resolved the column-mapping question, go ahead
     profile_label = (data.get("profileLabel") or "").strip()
-    profile_mapping = data.get("profileMapping") or None  # explicit role->col override (a fix)
-    if profile_mapping:
-        profile_mapping = {
-            role: int(col)
-            for role, col in profile_mapping.items()
-            if col is not None and str(col) != ""
-        }
+    profile_mapping = _coerce_profile_mapping(data.get("profileMapping"))  # explicit role->col override
 
     parser = get_parser(institution)
     # Home-loan imports default to a clearly-labelled account so the bond isn't
@@ -300,9 +336,7 @@ def import_document(req: https_fn.CallableRequest) -> dict:
     preview_only = bool(data.get("previewOnly"))
     confirm = bool(data.get("confirm"))
     profile_label = (data.get("profileLabel") or "").strip()
-    profile_mapping = data.get("profileMapping") or None
-    if profile_mapping:
-        profile_mapping = {r: int(c) for r, c in profile_mapping.items() if c is not None and str(c) != ""}
+    profile_mapping = _coerce_profile_mapping(data.get("profileMapping"))
 
     return _process_pdf(
         firestore.client(), uid, pdf_bytes,
@@ -520,26 +554,61 @@ def ingest_email(req: https_fn.Request):
     owner = os.environ.get("GMAIL_OWNER_UID")
     if not secret or not owner:
         return https_fn.Response("not configured", status=503)
+    # Refuse to run on a trivially weak/placeholder shared secret.
+    if len(secret) < 16:
+        return https_fn.Response("intake secret too weak", status=503)
+
+    # Reject oversized bodies before buffering/parsing (base64 inflates ~33%).
+    try:
+        declared = int(req.headers.get("Content-Length") or 0)
+    except (TypeError, ValueError):
+        declared = 0
+    if declared > _MAX_EMAIL_BODY_BYTES:
+        return https_fn.Response("payload too large", status=413)
 
     body = req.get_json(silent=True) or {}
-    if body.get("secret") != secret:
-        return https_fn.Response("forbidden", status=403)
 
     b64 = body.get("pdfBase64")
     if not isinstance(b64, str) or not b64.strip():
         return https_fn.Response("pdfBase64 required", status=400)
+
+    # Authenticate with an HMAC over (timestamp . payload) instead of sending the
+    # shared secret in cleartext. This (a) keeps the secret off the wire, (b) is a
+    # constant-time check, and (c) the freshness window makes a captured request
+    # un-replayable once it goes stale.
+    try:
+        ts = int(body.get("ts") or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    now_ms = int(time.time() * 1000)
+    if ts <= 0 or abs(now_ms - ts) > _EMAIL_INTAKE_SKEW_MS:
+        return https_fn.Response("stale or missing timestamp", status=403)
+
+    # Sign the dedup-relevant gmailMessageId too, not just the payload bytes, so a
+    # forged message-id can't be used to poison Layer-2 dedup (drop a future real
+    # attachment as a "duplicate"). The Apps Script signs the same string.
+    gmail_message_id = body.get("gmailMessageId")
+    signed = f"{ts}.{gmail_message_id or ''}.{b64}"
+    expected_sig = hmac.new(secret.encode(), signed.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected_sig, str(body.get("sig") or "")):
+        return https_fn.Response("forbidden", status=403)
+
     try:
         pdf_bytes = base64.b64decode("".join(b64.split()))
     except (binascii.Error, ValueError):
         return https_fn.Response("bad base64", status=400)
-    if len(pdf_bytes) > 15 * 1024 * 1024:
+    if len(pdf_bytes) > _MAX_PDF_BYTES:
         return https_fn.Response("file too large", status=400)
 
-    result = _process_pdf(
-        firestore.client(), owner, pdf_bytes,
-        filename=(body.get("filename") or "email.pdf"),
-        source="gmail", gmail_message_id=body.get("gmailMessageId"),
-    )
+    try:
+        result = _process_pdf(
+            firestore.client(), owner, pdf_bytes,
+            filename=(body.get("filename") or "email.pdf"),
+            source="gmail", gmail_message_id=gmail_message_id,
+        )
+    except Exception:
+        # Don't leak internals (stack traces) to this public endpoint.
+        return https_fn.Response("processing error", status=500)
     return https_fn.Response(json.dumps(result), status=200, content_type="application/json")
 
 
@@ -633,6 +702,15 @@ def set_category(req: https_fn.CallableRequest) -> dict:
             https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
             "transactionId and category are required.",
         )
+    # This callable is the only client-reachable write into the backend-owned
+    # transactions/categoryRules collections, so validate the free-text category
+    # before it lands (and before it propagates to every future import via the
+    # learned rule). Bound length + reject control chars.
+    if len(category) > 64 or any(ord(c) < 0x20 for c in category):
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+            "category must be at most 64 characters with no control characters.",
+        )
 
     db = firestore.client()
     txns = db.collection("users").document(uid).collection("transactions")
@@ -717,6 +795,61 @@ def set_statement_password(req: https_fn.CallableRequest) -> dict:
     except RuntimeError as e:
         raise https_fn.HttpsError(https_fn.FunctionsErrorCode.FAILED_PRECONDITION, str(e))
     return {"status": "saved"}
+
+
+def _require_pin(req) -> str:
+    """Shared auth + PIN-shape validation for the app-lock callables."""
+    if req.auth is None:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.UNAUTHENTICATED, "You must be signed in."
+        )
+    pin = str((req.data or {}).get("pin") or "").strip()
+    if not pin.isdigit() or not (4 <= len(pin) <= 6):
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT, "PIN must be 4-6 digits."
+        )
+    return pin
+
+
+@https_fn.on_call(
+    region="africa-south1",
+    memory=options.MemoryOption.MB_256,
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
+)
+def set_app_pin(req: https_fn.CallableRequest) -> dict:
+    """Set the app-lock PIN. The PBKDF2 hash is stored backend-only (secure/appLock);
+    the client never holds or overwrites it directly."""
+    pin = _require_pin(req)
+    applock.set_pin(firestore.client(), req.auth.uid, pin)
+    return {"status": "saved"}
+
+
+@https_fn.on_call(
+    region="africa-south1",
+    memory=options.MemoryOption.MB_256,
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
+)
+def verify_app_pin(req: https_fn.CallableRequest) -> dict:
+    """Verify a PIN attempt server-side (constant-time), with a lockout after
+    repeated misses. Returns {ok, locked, lockedUntil}."""
+    pin = _require_pin(req)
+    res = applock.check_pin(firestore.client(), req.auth.uid, pin)
+    return {"ok": bool(res.get("ok")), "locked": bool(res.get("locked")),
+            "lockedUntil": int(res.get("lockedUntil", 0))}
+
+
+@https_fn.on_call(
+    region="africa-south1",
+    memory=options.MemoryOption.MB_256,
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["GET", "POST"]),
+)
+def app_pin_status(req: https_fn.CallableRequest) -> dict:
+    """Whether an app-lock PIN is set for this user (the hash itself stays backend-only)."""
+    if req.auth is None:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.UNAUTHENTICATED, "You must be signed in."
+        )
+    return {"hasPin": applock.has_pin(firestore.client(), req.auth.uid)}
 
 
 @https_fn.on_call(
