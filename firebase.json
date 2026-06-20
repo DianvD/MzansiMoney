@@ -23,7 +23,7 @@
       "source": "functions",
       "codebase": "default",
       "runtime": "python312",
-      "ignore": ["venv", ".venv", "__pycache__", "*.pyc"]
+      "ignore": ["venv", ".venv", "__pycache__", "*.pyc", "sa-key.json", "*.serviceaccount.json"]
     }
   ],
   "firestore": {

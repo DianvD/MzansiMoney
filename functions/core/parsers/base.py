@@ -35,7 +35,11 @@ _DATE_FORMATS = [
 _AMOUNT_CLEAN = re.compile(r"[^\d,.\-()]")
 # A value that is ENTIRELY a number (no embedded words) - used to tell an amount
 # column from a description that merely contains a reference number.
-_PURE_NUMERIC = re.compile(r"^\s*\(?-?\s*r?\s*\d[\d ,.]*\)?\s*(cr|dr)?\s*$", re.IGNORECASE)
+# NB: whitespace is stripped by is_numeric_token BEFORE this matches, so this
+# pattern contains no \s/space-in-class. That keeps it linear-time - an earlier
+# version allowed a space in both [\d ,.]* and an adjacent \s*, which backtracked
+# catastrophically (ReDoS) on inputs like "1" + many spaces + "x".
+_PURE_NUMERIC = re.compile(r"^\(?-?r?\d[\d,.]*\)?(cr|dr)?$", re.IGNORECASE)
 
 
 class BaseParser:
@@ -82,7 +86,14 @@ class BaseParser:
     @staticmethod
     def is_numeric_token(value: str) -> bool:
         """True only if the whole value is a number (not text with a number in it)."""
-        return bool(_PURE_NUMERIC.match(value or ""))
+        s = (value or "").strip()
+        # No real amount token is this long; also a hard backstop against
+        # pathological inputs before the regex runs.
+        if not s or len(s) > 40:
+            return False
+        # Spaces here are only ever thousands separators / currency padding, so
+        # drop them and match a whitespace-free pattern (linear, no backtracking).
+        return bool(_PURE_NUMERIC.match(s.replace(" ", "")))
 
     @staticmethod
     def parse_amount(value: str) -> float | None:
