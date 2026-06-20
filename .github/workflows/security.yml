@@ -212,6 +212,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read  # gitleaks PR mode lists PR commits via the API
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4
