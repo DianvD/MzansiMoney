@@ -43,17 +43,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # CodeQL needs GitHub code scanning, which requires Advanced Security on
+      # PRIVATE repos. These steps are best-effort (continue-on-error) so a
+      # private repo without GHAS doesn't show a red check; on public repos they
+      # run normally and upload to the Security tab.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
+        continue-on-error: true
         with:
           languages: javascript-typescript
           queries: security-extended
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
+        continue-on-error: true
 
       - name: Analyze
         uses: github/codeql-action/analyze@v3
+        continue-on-error: true
         with:
           category: "/language:javascript-typescript"
 
@@ -78,20 +85,23 @@ jobs:
       - name: Install Bandit
         run: pip install "bandit[sarif]==1.7.9"
 
-      - name: Run Bandit (SARIF)
+      - name: Run Bandit (gate + SARIF)
         # Scan production code only: exclude venv and every dev/test helper
         # (*/_*.py covers _*_test.py + the _emulator_*/_smoketest/_dump/_migrate/
         # _classify_examples scripts) plus the admin load_to_prod.py.
-        # Don't fail the job here; findings are reviewed in the Security tab.
-        continue-on-error: true
+        # This is a HARD GATE - bandit exits non-zero on any finding, so it fails
+        # the build even on a private repo without Advanced Security.
         run: |
           bandit -c pyproject.toml -r functions \
             -x '*/venv/*,*/.venv/*,*/__pycache__/*,*/_*.py,*/load_to_prod.py,*/run_tests.py' \
             -f sarif -o bandit.sarif
 
       - name: Upload Bandit SARIF
+        # Best-effort: only succeeds where code scanning is available (public, or
+        # private + GHAS). Never fails the build.
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
           sarif_file: bandit.sarif
           category: bandit
@@ -112,6 +122,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Semgrep (SARIF)
+        # Informational (non-blocking): findings upload to the Security tab on
+        # repos with code scanning. Bandit is the hard Python-SAST gate; promote
+        # this to a gate (add --error, drop continue-on-error) once the full
+        # ruleset is verified clean in CI.
         continue-on-error: true
         # .semgrep.yml holds the custom app rules; the p/* and OWASP rulesets are
         # pulled from the Semgrep registry here.
@@ -129,8 +143,10 @@ jobs:
           SEMGREP_RULES: ""
 
       - name: Upload Semgrep SARIF
+        # Best-effort (see Bandit note). Never fails the build.
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -205,6 +221,8 @@ jobs:
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
+          # Required since gitleaks-action v2 for PR scans.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
 
   # ---------------------------------------------------------------------------
@@ -222,7 +240,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Dependency Review
+        # Requires the Dependency Graph (and Advanced Security on private repos).
+        # Best-effort so the check doesn't hard-fail where those aren't enabled;
+        # enable Dependency graph in repo Settings > Code security to activate it.
         uses: actions/dependency-review-action@v4
+        continue-on-error: true
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
