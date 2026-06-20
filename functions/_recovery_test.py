@@ -3,7 +3,12 @@
 The token is the safety latch on every destructive recovery op, so its binding
 rules are explicit. Run: python _recovery_test.py
 """
+import os
 from datetime import datetime, timezone
+
+# _secret() now fails closed when no key is configured; give the offline suite a
+# deterministic test key (>= 32 chars) so token math stays exercised.
+os.environ.setdefault("RECOVERY_TOKEN_SECRET", "test-recovery-secret-0123456789abcdef")
 
 from core.recovery import json_default, make_token, verify_token
 

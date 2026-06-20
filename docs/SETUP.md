@@ -81,6 +81,28 @@ venv\Scripts\pip install -r requirements.txt     # Windows
 cd ..
 ```
 
+## 5b. Required secrets (set before deploy)
+
+The backend **fails closed** if these are missing - it will not fall back to an
+insecure default.
+
+| Secret | Required | What it protects |
+|---|---|---|
+| `RECOVERY_TOKEN_SECRET` | **Yes** | HMAC key for the confirmation tokens that guard destructive recovery ops. Generate with `openssl rand -hex 32` (>= 32 chars). |
+| `STATEMENT_KEY` | If you save statement passwords | AES-256-GCM key for the encrypted statement password. `openssl rand -hex 32`. |
+| `GMAIL_INTAKE_SECRET` | If you use Gmail auto-import | Shared HMAC key for the signed email-intake requests (>= 16 chars; use a long random value). |
+| `GMAIL_OWNER_UID` | If you use Gmail auto-import | Your Firebase Auth UID (intake writes under this user). |
+
+```bash
+firebase functions:secrets:set RECOVERY_TOKEN_SECRET
+firebase functions:secrets:set STATEMENT_KEY
+firebase functions:secrets:set GMAIL_INTAKE_SECRET
+# GMAIL_OWNER_UID is not sensitive; set it as an env/param value.
+```
+
+For **local dev/tests** you may set `ALLOW_DEV_SECRETS=1` to use throwaway keys
+instead - never set that in production.
+
 ## 6. Deploy
 
 ```bash
@@ -103,7 +125,10 @@ confirm the columns (see [PARSERS.md](PARSERS.md)); after that it's automatic.
   so emailed/encrypted PDFs auto-unlock. It's stored AES-encrypted, backend-only.
 - **Gmail auto-import:** a Google Apps Script posts PDFs from a labelled inbox to
   the backend hourly - see [`gmail-apps-script.gs`](gmail-apps-script.gs). Set the
-  function config secrets `GMAIL_INTAKE_SECRET` and `GMAIL_OWNER_UID`.
+  function config secrets `GMAIL_INTAKE_SECRET` and `GMAIL_OWNER_UID` (see 5b). The
+  script signs each request with HMAC over `timestamp.payload`; the secret never
+  travels on the wire and stale requests are rejected (~5 min window). Paste the
+  same secret into `SECRET` in the Apps Script.
 - **Backups & recovery:** the Import page has a "Data health & recovery" panel -
   back up your ledger, undo a single import, and check that every import's numbers
   reconcile. See [RECOVERY.md](RECOVERY.md).
@@ -115,3 +140,12 @@ confirm the columns (see [PARSERS.md](PARSERS.md)); after that it's automatic.
 - **Web can't reach functions** - the region in `web/src/firebase.ts` must match
   `functions/main.py`.
 - **Emulators won't start** - you need **JDK 21+** (`java -version`).
+
+## Security scanning
+
+This repo ships professional-grade security scanning in CI
+(`.github/workflows/security.yml`: CodeQL, Bandit, Semgrep, pip-audit, npm audit,
+gitleaks, dependency-review). To run the scanners locally, install
+`functions/requirements-dev.txt` and follow
+[SECURITY-SCANNING.md](SECURITY-SCANNING.md). To report a vulnerability, see
+[../SECURITY.md](../SECURITY.md).

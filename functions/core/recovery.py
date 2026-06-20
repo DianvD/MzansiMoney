@@ -32,12 +32,32 @@ from .storage import store_snapshot
 _BATCH_LIMIT = 400
 _TOKEN_TTL = 300  # seconds - a confirmation is good for 5 minutes
 _SNAPSHOT_SCOPE = ("transactions", "bills", "documents", "categoryRules")
+_MAX_EXPORT_DOCS = 100_000  # bound the in-memory snapshot so one export can't OOM the function
 
 
 # ---- confirmation tokens (pure) -------------------------------------------
 
 def _secret() -> bytes:
-    return (os.environ.get("RECOVERY_TOKEN_SECRET") or "app-recovery-dev-secret").encode()
+    """HMAC key for confirmation tokens. MUST be provided via the
+    ``RECOVERY_TOKEN_SECRET`` env var (a Firebase secret) in any real deployment.
+
+    We deliberately do NOT fall back to a hardcoded value: these tokens are the
+    only thing guarding destructive recovery ops, so a known key would let a
+    client forge a confirmation and skip the dry-run safety. Fail closed instead.
+    For local dev/tests only, set ``ALLOW_DEV_SECRETS=1`` to opt into a throwaway
+    key (never set that in production)."""
+    s = os.environ.get("RECOVERY_TOKEN_SECRET")
+    if not s:
+        if os.environ.get("ALLOW_DEV_SECRETS") == "1":
+            return b"dev-only-insecure-recovery-secret-do-not-use-in-prod"
+        raise RuntimeError(
+            "RECOVERY_TOKEN_SECRET is not set. Generate one with "
+            "`openssl rand -hex 32` and set it as a Functions secret "
+            "(see docs/SETUP.md). Refusing to use an insecure default."
+        )
+    if len(s) < 32:
+        raise RuntimeError("RECOVERY_TOKEN_SECRET must be at least 32 characters.")
+    return s.encode()
 
 
 def make_token(uid: str, op: str, target_sig: str, ttl: int = _TOKEN_TTL) -> str:
@@ -93,8 +113,20 @@ def export_ledger(db, uid: str, *, reason: str = "manual") -> dict:
     user = _user(db, uid)
     payload: dict = {"schema": 1, "reason": reason, "exportedAt": _now_iso()}
     counts: dict = {}
+    total = 0
     for name in _SNAPSHOT_SCOPE:
-        items = [{"id": d.id, **(d.to_dict() or {})} for d in user.collection(name).stream()]
+        items = []
+        # Count *inside* the stream so we bail before materializing a giant
+        # collection in memory (a single huge `transactions` set is the real OOM
+        # risk, not the cumulative total).
+        for d in user.collection(name).stream():
+            items.append({"id": d.id, **(d.to_dict() or {})})
+            total += 1
+            if total > _MAX_EXPORT_DOCS:
+                raise RuntimeError(
+                    f"Ledger too large to snapshot in one pass (> {_MAX_EXPORT_DOCS} docs). "
+                    "Export in smaller scopes or contact support."
+                )
         payload[name] = items
         counts[name] = len(items)
 
@@ -187,12 +219,15 @@ def revert_import(db, uid: str, *, document_id: str, dry_run: bool = True,
     if not verify_token(confirm_token, uid, "revert_import", target_sig):
         raise PermissionError("Confirmation expired or the data changed since the preview - re-check and try again.")
 
-    # Snapshot current state first so the revert itself is reversible. If storage
-    # is unavailable we proceed but flag that no pre-op backup was taken.
+    # Snapshot current state first so the revert itself is reversible. If the
+    # backup can't be taken (storage down, or ledger too large to snapshot) we
+    # still proceed - the revert is already gated by a dry-run + confirmation
+    # token - but we record WHY so a missing backup is never silent.
+    pre, pre_error = None, None
     try:
         pre = export_ledger(db, uid, reason="pre_revert")["snapshotId"]
-    except Exception:
-        pre = None
+    except Exception as e:
+        pre_error = str(e) or e.__class__.__name__
 
     ledger_ref.set({"status": "reverting", "revertStartedAt": firestore.SERVER_TIMESTAMP}, merge=True)
     deleted = _batch_delete(db, [d.reference for d in matches])
@@ -201,11 +236,13 @@ def revert_import(db, uid: str, *, document_id: str, dry_run: bool = True,
                     "revertedTxnCount": deleted, "revertReason": reason}, merge=True)
 
     log_id = _log(db, uid, op="revert_import", reason=reason, target={"documentId": document_id},
-                  effect={"deleted": deleted, "billsDeleted": bills_deleted},
+                  effect={"deleted": deleted, "billsDeleted": bills_deleted,
+                          "preOpSnapshotError": pre_error},
                   pre_op_snapshot_id=pre, token=confirm_token)
 
     return {"status": "reverted", "documentId": document_id, "deleted": deleted,
-            "billsDeleted": bills_deleted, "preOpSnapshotId": pre, "recoveryLogId": log_id}
+            "billsDeleted": bills_deleted, "preOpSnapshotId": pre,
+            "preOpSnapshotError": pre_error, "recoveryLogId": log_id}
 
 
 def _revert_warnings(meta: dict, matched: int) -> list[str]:

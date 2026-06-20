@@ -77,7 +77,9 @@ def txn_hash(date: datetime, amount: float, direction: str, description: str) ->
     same statement overwrites identical rows instead of duplicating them.
     """
     key = f"{date.date().isoformat()}|{amount:.2f}|{direction}|{(description or '').strip().lower()}"
-    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+    # Content-addressing only (idempotent doc id), not a security primitive - so
+    # SHA-1 is fine and usedforsecurity=False keeps SAST scanners honest about that.
+    return hashlib.sha1(key.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def normalize(

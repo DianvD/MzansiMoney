@@ -1,0 +1,21 @@
+# Project tooling config. Currently used to configure Bandit (Python SAST).
+# Bandit reads [tool.bandit] when invoked with `-c pyproject.toml`.
+
+[tool.bandit]
+# Recurse over the backend only.
+# Exclude the virtualenv and the offline test files (functions/_*_test.py and
+# the dev/smoke helpers). Test code deliberately uses throwaway secrets and
+# asserts on internals, which would be noise in a SAST report.
+exclude_dirs = [
+  "functions/venv",
+  "functions/.venv",
+  "functions/__pycache__",
+  "web/node_modules",
+  "web/dist",
+]
+
+# Glob-style filename excludes for the test/dev helpers (Bandit matches these
+# against the file path). Keeps test code out of the report without needing to
+# list every file on the CLI.
+[tool.bandit.assert_used]
+skips = ["*_test.py", "*/_*_test.py"]

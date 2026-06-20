@@ -1,0 +1,107 @@
+# Custom Semgrep rules tuned to MzansiMoney's backend.
+#
+# The broad community rulesets (p/ci, p/python, p/javascript, p/secrets,
+# p/owasp-top-ten) are pulled in via the CI invocation
+# (`semgrep --config .semgrep.yml --config p/ci ...`) and locally via
+# `semgrep scan --config .semgrep.yml --config p/python ...`.
+# This file holds the app-specific rules that the registry doesn't cover.
+
+rules:
+  # ---------------------------------------------------------------------------
+  # (a) Insecure default: `os.environ.get(X) or "<literal>"`
+  # A hardcoded fallback for a secret/config silently turns "missing secret"
+  # into "known insecure secret". The backend is supposed to fail closed.
+  # ---------------------------------------------------------------------------
+  - id: insecure-env-default-literal
+    languages: [python]
+    severity: WARNING
+    message: >
+      Insecure default: `os.environ.get(...) or "<literal>"` substitutes a
+      hardcoded value when the env var is missing. For secrets/config this turns
+      a missing-secret error into a known, attacker-guessable value. Fail closed
+      (raise) instead, or gate any dev fallback behind an explicit opt-in.
+    metadata:
+      category: security
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: os.environ.get(...) or "..."
+          - pattern: os.getenv(...) or "..."
+          - pattern: os.environ[...] or "..."
+
+  # ---------------------------------------------------------------------------
+  # (b) Non-constant-time comparison of a secret/token/password
+  # Using ==/!= on a secret leaks length/prefix via timing. Use hmac.compare_digest.
+  # ---------------------------------------------------------------------------
+  - id: non-constant-time-secret-compare
+    languages: [python]
+    severity: WARNING
+    message: >
+      Non-constant-time comparison of a secret-like value. `==`/`!=` short-circuits
+      and leaks information through timing. Use `hmac.compare_digest(a, b)` for
+      secrets, tokens, passwords, HMACs and signatures.
+    metadata:
+      category: security
+      cwe: "CWE-208: Observable Timing Discrepancy"
+      owasp: "A02:2021 - Cryptographic Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $SECRET == $OTHER
+          - pattern: $SECRET != $OTHER
+          - pattern: $OTHER == $SECRET
+          - pattern: $OTHER != $SECRET
+      - metavariable-regex:
+          metavariable: $SECRET
+          # The value must look like an actual secret/token/credential. We exclude
+          # names that merely contain "secret" as a feature flag (e.g.
+          # ALLOW_DEV_SECRETS) by requiring a secret-ish *noun*, and we don't fire
+          # on env-flag style `*_FLAG`/`ALLOW_*`/`ENABLE_*` reads.
+          regex: (?i).*(secret|token|password|passwd|hmac|signature|sig|digest|\bmac\b|apikey|api_key|auth)\b.*
+      # The other side must be a secret-ish value too, not an int/return-code or a
+      # boolean flag literal. Excluding numeric and "0"/"1" comparisons removes the
+      # pypdf `decrypt(...) == 0` and `get("ALLOW_DEV_SECRETS") == "1"` false positives.
+      - metavariable-pattern:
+          metavariable: $OTHER
+          patterns:
+            - pattern-not: "0"
+            - pattern-not: "1"
+            - pattern-not: '"0"'
+            - pattern-not: '"1"'
+            - pattern-not-regex: ^[0-9]+$
+      # Don't fire on `is None` / membership / constant-time helpers / decrypt codes.
+      - pattern-not: $SECRET == None
+      - pattern-not: $SECRET != None
+      - pattern-not: $X.decrypt(...) == $N
+      - pattern-not: $X.decrypt(...) != $N
+      - pattern-not: os.environ.get("ALLOW_DEV_SECRETS") == ...
+      - pattern-not: hmac.compare_digest(...)
+
+  # ---------------------------------------------------------------------------
+  # (c) Weak hash (md5/sha1) without usedforsecurity=False
+  # If it's genuinely non-security (e.g. a cache key) mark it explicitly so the
+  # intent is auditable; otherwise use SHA-256.
+  # ---------------------------------------------------------------------------
+  - id: weak-hash-without-usedforsecurity-flag
+    languages: [python]
+    severity: WARNING
+    message: >
+      `hashlib.md5(...)` / `hashlib.sha1(...)` used without `usedforsecurity=False`.
+      MD5/SHA-1 are broken for security use. If this hash is non-security
+      (e.g. a dedup/cache key) pass `usedforsecurity=False` to make that explicit;
+      otherwise switch to SHA-256.
+    metadata:
+      category: security
+      cwe: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp: "A02:2021 - Cryptographic Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+      - pattern-not: hashlib.md5(..., usedforsecurity=False)
+      - pattern-not: hashlib.sha1(..., usedforsecurity=False)
+      - pattern-not: hashlib.md5(usedforsecurity=False, ...)
+      - pattern-not: hashlib.sha1(usedforsecurity=False, ...)

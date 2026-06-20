@@ -1,0 +1,37 @@
+# gitleaks config for MzansiMoney.
+# Extends the bundled default ruleset (all the built-in secret detectors) and
+# adds a tight allowlist for two known, intentional non-secrets.
+
+title = "MzansiMoney gitleaks config"
+
+[extend]
+# Inherit gitleaks' built-in rules; we only add an allowlist below.
+useDefault = true
+
+[allowlist]
+description = "Known intentional non-secrets (kept deliberately tight)."
+
+# Path-level allowances:
+#   - Lockfiles / build output carry integrity hashes that look like secrets.
+#   - The recovery module/test reference the dev placeholder by name.
+paths = [
+  '''web/package-lock\.json''',
+  '''.*\.lock''',
+  '''web/dist/.*''',
+]
+
+# Regex allowances (matched against the detected secret string):
+regexes = [
+  # DEV-ONLY placeholder recovery key. Not a real secret: it is only ever
+  # returned when ALLOW_DEV_SECRETS=1 is explicitly set (local dev/tests), and
+  # the backend otherwise fails closed. See functions/*/recovery.py.
+  '''dev-only-insecure-recovery-secret-do-not-use-in-prod''',
+  # Test-only throwaway recovery secret used in _recovery_test.py.
+  '''test-recovery-secret-0123456789abcdef''',
+
+  # Firebase WEB API keys are public by design — they identify the project and
+  # are protected by Firestore rules, not kept secret. Allow the AIza... web-key
+  # shape ONLY where it appears as a Vite env var / firebase web config.
+  '''VITE_FIREBASE_API_KEY\s*[=:]\s*["']?AIza[0-9A-Za-z\-_]{35}["']?''',
+  '''apiKey:\s*["']AIza[0-9A-Za-z\-_]{35}["']''',
+]
