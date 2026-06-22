@@ -10,6 +10,14 @@ body,
   height: 100%;
 }
 
+/* Stop the mobile browser's native pull-to-refresh from reloading the whole PWA
+   (which dropped you back to the sign-in screen). The app provides its own
+   pull-to-refresh that reloads data only - see components/PullToRefresh.tsx. */
+html,
+body {
+  overscroll-behavior-y: contain;
+}
+
 body {
   margin: 0;
   background: #0a0a0a;
