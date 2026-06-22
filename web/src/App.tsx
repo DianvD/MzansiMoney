@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "./auth";
 import {
   subscribeBills,
@@ -26,6 +26,7 @@ import SecuritySettings from "./components/SecuritySettings";
 import BrandingSettings from "./components/BrandingSettings";
 import Nav, { NAV_ITEMS } from "./components/Nav";
 import { Icon } from "./components/icons";
+import PullToRefresh from "./components/PullToRefresh";
 
 type View = "dashboard" | "transactions" | "bills" | "debits" | "wealth" | "homeloan" | "import";
 
@@ -46,6 +47,22 @@ export default function App() {
   const [defaultAccountId, setDefaultAccountId] = useState<string | null>(null);
   const [accountLabels, setAccountLabels] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  // Skeleton loaders show on the first load only; a manual refresh re-pulls in the
+  // background so the dashboard doesn't flash empty.
+  const firstLoad = useRef(true);
+
+  // Reload data (not the page): re-subscribe to Firestore and recompute date-based
+  // state. Used by the header button and the mobile pull-to-refresh.
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setNow(new Date());
+    setReloadKey((k) => k + 1);
+    // Keep the spinner up briefly so the gesture/button reads as "did something".
+    await new Promise((r) => setTimeout(r, 500));
+    setRefreshing(false);
+  }, []);
 
   // "now" drives month math and bill overdue/upcoming status. Refresh it when the
   // window regains focus so a dashboard left open overnight doesn't go stale.
@@ -62,13 +79,17 @@ export default function App() {
       setBills([]);
       setTxnsLoading(false);
       setBillsLoading(false);
+      firstLoad.current = true;
       return;
     }
-    setTxnsLoading(true);
-    setBillsLoading(true);
+    // Only show skeletons on the very first load - a refresh re-subscribes silently.
+    if (firstLoad.current) {
+      setTxnsLoading(true);
+      setBillsLoading(true);
+    }
     const unsubTxns = subscribeTransactions(
       user.uid,
-      (txns) => { setTransactions(txns); setTxnsLoading(false); setError(null); },
+      (txns) => { setTransactions(txns); setTxnsLoading(false); firstLoad.current = false; setError(null); },
       (err) => { setError(err.message); setTxnsLoading(false); },
     );
     const unsubBills = subscribeBills(
@@ -77,7 +98,7 @@ export default function App() {
       (err) => { setError(err.message); setBillsLoading(false); },
     );
     return () => { unsubTxns(); unsubBills(); };
-  }, [user]);
+  }, [user, reloadKey]);
 
   useEffect(() => {
     if (!user) { setNavOrder([]); return; }
@@ -143,6 +164,7 @@ export default function App() {
 
   return (
     <LockGate uid={user.uid}>
+      <PullToRefresh onRefresh={refresh}>
       <div className="flex min-h-screen bg-neutral-950">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 border-r border-neutral-800/80 lg:block">
@@ -191,6 +213,9 @@ export default function App() {
                 onSetDefault={(id) => { setDefaultAccountId(id); if (user) void saveDefaultAccount(user.uid, id); }}
               />
               <div className="flex items-center gap-1.5">
+                <IconButton onClick={() => void refresh()} label="Refresh data">
+                  <Icon name="refresh" className={refreshing ? "animate-spin" : ""} />
+                </IconButton>
                 <IconButton onClick={() => setHideAmounts((v) => !v)} label={hideAmounts ? "Show balances" : "Hide balances"}>
                   <Icon name={hideAmounts ? "eyeOff" : "eye"} />
                 </IconButton>
@@ -254,6 +279,7 @@ export default function App() {
           </main>
         </div>
       </div>
+      </PullToRefresh>
     </LockGate>
   );
 }
