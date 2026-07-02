@@ -11,9 +11,12 @@ interface Props {
   transactions: Transaction[];
   loading: boolean;
   hideAmounts: boolean;
+  canLoadOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
 }
 
-export default function Transactions({ transactions, loading, hideAmounts }: Props) {
+export default function Transactions({ transactions, loading, hideAmounts, canLoadOlder, loadingOlder, onLoadOlder }: Props) {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Transaction | null>(null);
   // Manual open/close overrides per month; default is computed (current + last
@@ -56,7 +59,7 @@ export default function Transactions({ transactions, loading, hideAmounts }: Pro
       ) : months.length === 0 ? (
         <Panel title="Transactions">
           <div className="py-10 text-center text-sm text-neutral-500">
-            No transactions match “{q}”.
+            No transactions match "{q}".
           </div>
         </Panel>
       ) : (
@@ -96,6 +99,18 @@ export default function Transactions({ transactions, loading, hideAmounts }: Pro
             </section>
           );
         })
+      )}
+
+      {canLoadOlder && onLoadOlder && (
+        <div className="flex justify-center py-2">
+          <button
+            onClick={onLoadOlder}
+            disabled={loadingOlder}
+            className="rounded-xl border border-neutral-700 px-5 py-2.5 text-sm font-medium text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+          >
+            {loadingOlder ? "Loading…" : "Load older transactions"}
+          </button>
+        </div>
       )}
 
       {editing && <CategoryEditor txn={editing} onClose={() => setEditing(null)} />}

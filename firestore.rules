@@ -3,6 +3,29 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ── OPTIONAL HARDENING ──────────────────────────────────────────────────────
+    // By default, any authenticated Google user can access their own data space.
+    // For a single-owner self-hosted deploy you can add a second layer: an opaque
+    // UID pin that prevents a stranger who signs in with THEIR Google account from
+    // even creating a namespace here (defence-in-depth behind the backend's
+    // OWNER_UID callable gate).
+    //
+    // To enable, replace the isOwner function below with:
+    //
+    //   function appOwnerUid() {
+    //     return 'YOUR_UID_HERE';   // paste your Firebase Auth UID
+    //   }
+    //
+    //   function isOwner(userId) {
+    //     return request.auth != null
+    //         && request.auth.uid == userId
+    //         && request.auth.uid == appOwnerUid();
+    //   }
+    //
+    // Find your UID: Firebase console -> Authentication -> Users, or
+    //   firebase auth:export users.json  (then read the uid field).
+    // ────────────────────────────────────────────────────────────────────────────
+
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }

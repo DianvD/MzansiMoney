@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useBranding } from "../branding/context";
 import { CUSTOM_SKIN_ID, PALETTES, SKINS, type PaletteId } from "../branding/skins";
+import { useBackdropDismiss } from "../lib/useBackdropDismiss";
 
 const field =
   "w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 outline-none focus:border-indigo-500";
@@ -23,12 +24,12 @@ export default function BrandingSettings({ onClose }: { onClose: () => void }) {
   }, [branding.skinId]);
 
   const isCustom = branding.skinId === CUSTOM_SKIN_ID;
+  const dismiss = useBackdropDismiss(onClose);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" {...dismiss}>
       <div
         className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 p-5"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="text-sm font-semibold text-neutral-200">Appearance & branding</div>
         <p className="mt-1 text-xs text-neutral-500">

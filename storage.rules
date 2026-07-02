@@ -5,6 +5,17 @@ rules_version = '2';
 // archive but never write.
 service firebase.storage {
   match /b/{bucket}/o {
+    // ── OPTIONAL HARDENING ──────────────────────────────────────────────────
+    // For a single-owner deploy you can pin Storage to exactly your UID so a
+    // stranger who authenticates with their own Google account can't access even
+    // their own namespace here. Replace the allow-read rule below with:
+    //
+    //   allow read: if request.auth != null
+    //               && request.auth.uid == userId
+    //               && request.auth.uid == 'YOUR_UID_HERE';
+    //
+    // Find your UID: Firebase console -> Authentication -> Users.
+    // ────────────────────────────────────────────────────────────────────────
     match /users/{userId}/{allPaths=**} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;

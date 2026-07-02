@@ -3,38 +3,74 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
+  QueryDocumentSnapshot,
   setDoc,
+  startAfter,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import type { Timestamp } from "firebase/firestore";
 import { db, functions } from "../firebase";
-import type { Bill, Goal, HomeLoanSettings, Holding, RecurringLists, Transaction, WatchItem } from "../types";
+import type {
+  Bill, Goal, HomeLoanSettings, Holding, PayTo, RecurringLists, Transaction, WatchItem,
+} from "../types";
 import type { DashboardLayout } from "./dashboardLayout";
 
-/** Live stream of a user's transactions, newest first. */
+/** Opaque page cursor for loadOlderTransactions (a Firestore doc snapshot). */
+export type TxnCursor = QueryDocumentSnapshot;
+
+/** Live stream of a user's transactions, newest first. Capped at 600 rows so the
+ * initial page loads quickly; call loadOlderTransactions to page back further. */
 export function subscribeTransactions(
   uid: string,
-  onData: (txns: Transaction[]) => void,
+  onData: (txns: Transaction[], lastDoc?: TxnCursor) => void,
   onError: (err: Error) => void,
 ): () => void {
   const q = query(
     collection(db, "users", uid, "transactions"),
     orderBy("date", "desc"),
+    limit(600),
   );
   return onSnapshot(
     q,
     (snap) => {
-      const txns = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Transaction, "id">),
-      }));
-      onData(txns);
+      const txns: Transaction[] = [];
+      for (const d of snap.docs) {
+        const data = d.data();
+        // Defensive: skip malformed docs missing the required date field.
+        if (!data.date) continue;
+        txns.push({ id: d.id, ...(data as Omit<Transaction, "id">) });
+      }
+      onData(txns, snap.docs[snap.docs.length - 1]);
     },
     onError,
   );
+}
+
+/** Fetch one page of transactions before `afterDoc` (i.e. older). */
+export async function loadOlderTransactions(
+  uid: string,
+  afterDoc: TxnCursor,
+  pageSize = 500,
+): Promise<{ txns: Transaction[]; lastDoc?: TxnCursor }> {
+  const q = query(
+    collection(db, "users", uid, "transactions"),
+    orderBy("date", "desc"),
+    startAfter(afterDoc),
+    limit(pageSize),
+  );
+  const snap = await getDocs(q);
+  const txns: Transaction[] = [];
+  for (const d of snap.docs) {
+    const data = d.data();
+    if (!data.date) continue;
+    txns.push({ id: d.id, ...(data as Omit<Transaction, "id">) });
+  }
+  return { txns, lastDoc: snap.docs[snap.docs.length - 1] };
 }
 
 export type ImportStatus = "imported" | "duplicate" | "needs_review" | "preview";
@@ -74,6 +110,8 @@ export interface ImportResult {
   reason?: string;
   existingId?: string;
   profile?: ProfileSummary | null;
+  rowsSkipped?: number;
+  rowsTotal?: number;
   // Present when status === "preview" (how we'd read the file):
   fingerprint?: string;
   hasHeader?: boolean;
@@ -91,6 +129,7 @@ interface ImportArgs {
   csvText: string;
   institution?: string;
   account?: string;
+  accountId?: string;
   /** Account number, when known - keys the accountId so re-imports reconcile. */
   accountNumber?: string | null;
   sourceDocument?: string;
@@ -135,6 +174,8 @@ export interface DocImportResult {
   reason?: string;
   existingId?: string;
   profile?: ProfileSummary | null;
+  rowsSkipped?: number;
+  rowsTotal?: number;
   // Present when status === "preview" (statement column confirm) - same shape as
   // the CSV preview, so the column-mapper component is reused as-is.
   fingerprint?: string;
@@ -155,6 +196,7 @@ interface DocImportArgs {
   password?: string;
   force?: boolean;
   account?: string;
+  accountId?: string;
   accountNumber?: string | null;
   previewOnly?: boolean;
   confirm?: boolean;
@@ -234,6 +276,32 @@ const callSetStatementPw = httpsCallable<{ password: string }, { status: string 
 
 export async function setStatementPassword(password: string) {
   return (await callSetStatementPw({ password })).data;
+}
+
+// ---- bills: update (mark paid, add payTo) ----------------------------------
+
+export interface UpdateBillSet {
+  paid?: boolean;
+  note?: string;
+  dueDate?: string | null; // ISO
+  amount?: number;
+  payTo?: PayTo | null;
+}
+
+interface UpdateBillArgs {
+  billId: string;
+  set: UpdateBillSet;
+}
+
+export interface UpdateBillResult {
+  status: "ok";
+  billId: string;
+}
+
+const callUpdateBill = httpsCallable<UpdateBillArgs, UpdateBillResult>(functions, "update_bill");
+
+export async function updateBill(args: UpdateBillArgs): Promise<UpdateBillResult> {
+  return (await callUpdateBill(args)).data;
 }
 
 // ---- holdings (assets/liabilities) & goals: client-owned, direct writes -----
@@ -392,6 +460,40 @@ export const saveAccountLabel = (uid: string, accountId: string, label: string) 
     { merge: true },
   );
 
+// ---- merged UI settings (single snapshot for nav + accounts + dashboard) ----
+
+export interface UiSettings {
+  navOrder: string[];
+  selectedAccountId: string;
+  defaultAccountId: string | null;
+  accountLabels: Record<string, string>;
+  dashboardLayout: Partial<DashboardLayout> | null;
+}
+
+/** Single snapshot listener for the /settings/ui document. Replaces the
+ * separate subscribeNavOrder + subscribeAccountPrefs + subscribeDashboardLayout
+ * calls in App.tsx so only one Firestore read is open at a time. */
+export function subscribeUiSettings(
+  uid: string,
+  onData: (settings: UiSettings) => void,
+  onError: (err: Error) => void,
+): () => void {
+  return onSnapshot(
+    doc(db, "users", uid, "settings", "ui"),
+    (snap) => {
+      const d = snap.data() ?? {};
+      onData({
+        navOrder: (d.navOrder as string[]) ?? [],
+        selectedAccountId: (d.selectedAccountId as string) ?? "all",
+        defaultAccountId: (d.defaultAccountId as string | null) ?? null,
+        accountLabels: (d.accountLabels as Record<string, string>) ?? {},
+        dashboardLayout: (d.dashboardLayout as Partial<DashboardLayout>) ?? null,
+      });
+    },
+    onError,
+  );
+}
+
 // ---- branding / theming (skin, app name, Gmail label): client-owned ---------
 
 export interface BrandingDoc {
@@ -445,12 +547,18 @@ export interface AuditImport {
   transactionsWritten?: number | null;
   liveTxnCount: number;
   mismatch: boolean;
+  reconciled?: boolean;
+  createdAt?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  revertedAt?: string | null;
 }
 export interface AuditResult {
   status: "ok" | "warnings";
   perImport: AuditImport[];
   stuckImports: { documentId: string; filename?: string; status?: string }[];
   totalTxns: number;
+  reconciledCount?: number;
 }
 const callAudit = httpsCallable<Record<string, never>, AuditResult>(functions, "audit_integrity");
 export async function auditIntegrity(): Promise<AuditResult> {
@@ -476,6 +584,7 @@ export interface RevertResult {
   billsDeleted: number;
   preOpSnapshotId: string | null;
   recoveryLogId: string;
+  reattributed?: number;
 }
 interface RevertArgs {
   documentId: string;

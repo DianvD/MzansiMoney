@@ -84,15 +84,24 @@ export default function Import({ accounts, defaultAccountId }: { accounts: Accou
     accountChoice ||
     (defaultAccountId && accounts.some((a) => a.accountId === defaultAccountId) ? defaultAccountId : "new");
 
-  function resolveAccount(): { account: string; accountNumber: string | null } {
+  const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 MB
+
+  /** Classify the file so we can reject clearly-wrong types early (not a security
+   * boundary - the backend validates again). */
+  function classifyUpload(file: File): "pdf" | "spreadsheet" | "text" | null {
+    if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) return "pdf";
+    if (isSpreadsheet(file)) return "spreadsheet";
+    if (/\.(csv|txt)$/i.test(file.name) || file.type.includes("text") || file.type === "") return "text";
+    return null;
+  }
+
+  function resolveAccount(): { account: string; accountNumber: string | null; accountId?: string } {
     if (institution === "homeloan") return { account: "Home Loan", accountNumber: null };
     if (effectiveChoice === "new") return { account: newAccountLabel.trim() || "Cheque", accountNumber: null };
     const a = accounts.find((x) => x.accountId === effectiveChoice);
-    return a ? { account: a.account || a.label, accountNumber: a.accountNumber } : { account: "Cheque", accountNumber: null };
-  }
-
-  function isPdf(file: File) {
-    return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    return a
+      ? { account: a.account || a.label, accountNumber: a.accountNumber, accountId: a.accountId }
+      : { account: "Cheque", accountNumber: null };
   }
 
   async function runCsv(csvText: string, file: string, opts: Resolve = {}) {
@@ -107,6 +116,7 @@ export default function Import({ accounts, defaultAccountId }: { accounts: Accou
       csvText: chunks[0],
       institution,
       account: acct.account,
+      accountId: acct.accountId,
       accountNumber: acct.accountNumber,
       sourceDocument: single ? file : `${file} [1/${chunks.length}]`,
       force: opts.force ?? false,
@@ -164,7 +174,7 @@ export default function Import({ accounts, defaultAccountId }: { accounts: Accou
   ) {
     const acct = resolveAccount();
     const res = await importDocument({
-      pdfBase64, filename: file, account: acct.account, accountNumber: acct.accountNumber, ...opts,
+      pdfBase64, filename: file, account: acct.account, accountId: acct.accountId, accountNumber: acct.accountNumber, ...opts,
     });
     if (res.status === "preview") {
       setPreview({ kind: "doc", file, pdfBase64, res });
@@ -175,18 +185,27 @@ export default function Import({ accounts, defaultAccountId }: { accounts: Accou
   }
 
   async function handleFile(file: File) {
+    const kind = classifyUpload(file);
+    if (!kind) {
+      setError(`Unsupported file type (${file.type || file.name}). Upload a CSV, Excel spreadsheet, or PDF.`);
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 20 MB.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     setOutcome(null);
     setPreview(null);
     setPassword("");
     try {
-      if (isPdf(file)) {
+      if (kind === "pdf") {
         const b64 = await fileToBase64(file);
         lastDoc.current = { pdfBase64: b64, file: file.name };
         await runDoc(b64, file.name);
       } else {
-        const text = isSpreadsheet(file) ? await xlsxToCsv(file) : await file.text();
+        const text = kind === "spreadsheet" ? await xlsxToCsv(file) : await file.text();
         lastCsv.current = { csvText: text, file: file.name };
         await runCsv(text, file.name);
       }
@@ -601,6 +620,11 @@ function OutcomeView(props: {
         Imported <strong>{res.imported}</strong> transactions from the <strong>{res.institution}</strong> statement PDF.
         {!!res.duplicatesInFile && ` ${res.duplicatesInFile} duplicate row(s) skipped.`}
         <ProfileNote profile={res.profile} />
+        {!!res.rowsSkipped && (
+          <div className="mt-1 text-amber-400">
+            ⚠ {res.rowsSkipped} row{res.rowsSkipped === 1 ? "" : "s"} skipped (malformed){res.rowsTotal ? ` of ${res.rowsTotal} parsed` : ""}.
+          </div>
+        )}
         {res.integrityOk === false && (
           <div className="mt-1 text-amber-400">⚠ Balance check failed: {res.integrityDetail}. Review this statement.</div>
         )}
@@ -626,6 +650,11 @@ function OutcomeView(props: {
       Imported <strong>{res.imported}</strong> transactions from <strong>{outcome.file}</strong> via {res.institution}.
       {!!res.duplicatesInFile && ` ${res.duplicatesInFile} duplicate row(s) skipped.`}
       <ProfileNote profile={res.profile} />
+      {!!res.rowsSkipped && (
+        <div className="mt-1 text-amber-400">
+          ⚠ {res.rowsSkipped} row{res.rowsSkipped === 1 ? "" : "s"} skipped (malformed){res.rowsTotal ? ` of ${res.rowsTotal} parsed` : ""}.
+        </div>
+      )}
       {res.integrityOk === false && (
         <div className="mt-1 text-amber-400">⚠ Balance check failed: {res.integrityDetail}. Review this statement.</div>
       )}

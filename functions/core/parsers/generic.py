@@ -201,6 +201,8 @@ class GenericCsvParser(BaseParser):
 
     def _parse_rows(self, rows: list[list[str]], header_idx: int, mapping: dict) -> list[RawTxn]:
         if not rows or not mapping:
+            self.rows_total = 0
+            self.rows_skipped = 0
             return []
         data_rows = rows[header_idx + 1 :] if header_idx >= 0 else rows
         out: list[RawTxn] = []
@@ -208,6 +210,8 @@ class GenericCsvParser(BaseParser):
             txn = self._row_to_txn(row, mapping)
             if txn is not None:
                 out.append(txn)
+        self.rows_total = len(data_rows)
+        self.rows_skipped = len(data_rows) - len(out)
         return out
 
     @staticmethod

@@ -181,6 +181,12 @@ const PATHS: Record<string, ReactNode> = {
     </>
   ),
   bolt: <path d="M13 2 4 14h7l-1 8 9-12h-7z" />,
+  refresh: (
+    <>
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.5 16a9 9 0 1 1-.9-7.9" />
+    </>
+  ),
   chevron: <polyline points="6 9 12 15 18 9" />,
   incomeArrow: (
     <>

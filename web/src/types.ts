@@ -29,6 +29,18 @@ export interface Transaction {
   importJobId: string;
 }
 
+/** Bank account / EFT payment destination extracted from an invoice or entered
+ * manually. All fields are optional — extraction only fills what it confidently
+ * found; empty string clears a key via `update_bill`. */
+export interface PayTo {
+  beneficiary?: string;
+  bank?: string;
+  accountNumber?: string;
+  branchCode?: string;
+  accountType?: string;
+  reference?: string;
+}
+
 /** A payable derived from an invoice/pro-forma. */
 export interface Bill {
   id: string;
@@ -46,6 +58,13 @@ export interface Bill {
   paidTransactionId: string | null;
   documentId: string;
   sourceDocument: string;
+  // Fields added by the bills v2 backend (optional; missing = default below).
+  /** When true the bill was explicitly marked paid (overrides date-based status). */
+  paidAt?: Timestamp | null;
+  /** Free-form note attached by the user. */
+  note?: string;
+  /** EFT payment destination, extracted from the invoice or entered manually. */
+  payTo?: PayTo;
 }
 
 /** A manually-declared asset or liability for net worth. */
@@ -67,7 +86,7 @@ export interface Goal {
 /** A pinned recurring payment to keep visible on the dashboard with its current
  * amount. `match` is a keyword found against a bill's institution/category or a
  * transaction's merchant/description - so it works whether the payment arrives as
- * an invoice PDF (Cape Town, levy) or a debit order (Kar insurance). Stored at
+ * an invoice PDF (municipal bill, levy) or an insurance debit order. Stored at
  * users/{uid}/settings/watchlist as { items: WatchItem[] }. */
 export interface WatchItem {
   id: string;

@@ -1,5 +1,5 @@
-firebase-functions>=0.4.0,<1.0.0
-firebase-admin>=6.5.0
-pypdf>=4.0.0
-pdfplumber>=0.11.0
-cryptography>=42.0.0
+firebase-functions==0.6.0
+firebase-admin==7.4.0
+pypdf==6.13.3
+pdfplumber==0.11.10
+cryptography==49.0.0

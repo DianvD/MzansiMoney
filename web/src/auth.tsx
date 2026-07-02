@@ -11,7 +11,8 @@ import {
   signOut as fbSignOut,
   type User,
 } from "firebase/auth";
-import { auth, googleProvider } from "./firebase";
+import { auth, googleProvider, isOwner } from "./firebase";
+import { recordLogin } from "./lib/notifications";
 
 interface AuthState {
   user: User | null;
@@ -30,6 +31,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
+      // Record the sign-in so the backend can alert on an unrecognised device.
+      // Fire-and-forget; a known device just refreshes its last-seen time. Only
+      // for the owner: a non-owner's call would be denied anyway, and gating it
+      // here keeps the owner check ahead of EVERY owner-only callable.
+      if (u && isOwner(u)) void recordLogin();
     });
   }, []);
 
@@ -40,6 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signInWithPopup(auth, googleProvider);
     },
     signOut: async () => {
+      // Clear React state immediately so another person's data isn't visible during
+      // the async network round-trip. onAuthStateChanged confirms the null when it
+      // settles; if fbSignOut fails, a subsequent auth event restores the user.
+      setUser(null);
       await fbSignOut(auth);
     },
   };

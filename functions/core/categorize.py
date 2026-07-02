@@ -30,7 +30,6 @@ _RULES: list[tuple[str, str]] = [
     ("payroll", "Income"),
     ("interest received", "Income"),
     # Home loan / bond (before generic - specific account names)
-    ("nedbhl", "Home Loan"),
     ("homeloan", "Home Loan"),
     ("home loan", "Home Loan"),
     ("bond repay", "Home Loan"),
@@ -54,20 +53,7 @@ _RULES: list[tuple[str, str]] = [
     ("ocean basket", "Eating Out"),
     ("vida e", "Eating Out"),
     ("seattle", "Eating Out"),
-    ("fat cactus", "Eating Out"),
-    ("die boer", "Eating Out"),
-    ("pandas", "Eating Out"),
-    ("mythos", "Eating Out"),
-    ("bossa", "Eating Out"),
-    ("vamos", "Eating Out"),
-    ("marcel", "Eating Out"),
-    ("macgregor", "Eating Out"),
     ("burger king", "Eating Out"),
-    ("triggerfish", "Eating Out"),
-    ("travellersrest", "Eating Out"),
-    ("de oude", "Eating Out"),
-    ("apache", "Eating Out"),
-    ("iowa", "Eating Out"),
     # Groceries
     ("checkers", "Groceries"),
     ("woolworths", "Groceries"),
@@ -125,7 +111,6 @@ _RULES: list[tuple[str, str]] = [
     ("openai", "Subscriptions"),
     ("anthropic", "Subscriptions"),
     ("claude", "Subscriptions"),
-    ("thangs", "Subscriptions"),
     # Gaming
     ("steam", "Gaming"),
     ("playstation", "Gaming"),
@@ -137,7 +122,6 @@ _RULES: list[tuple[str, str]] = [
     ("superbalist", "Shopping"),
     ("mr price", "Shopping"),
     ("cotton on", "Shopping"),
-    ("build a bear", "Shopping"),
     ("computer mania", "Shopping"),
     ("incredible connection", "Shopping"),
     ("hi-fi corp", "Shopping"),
@@ -156,9 +140,7 @@ _RULES: list[tuple[str, str]] = [
     ("vumatel", "Internet"),
     ("cool ideas", "Internet"),
     ("mweb", "Internet"),
-    # Insurance (kar insurance, life cover, short-term) - "insurance" is generic last
-    ("kar insurance", "Insurance"),
-    ("cap legacy", "Insurance"),
+    # Insurance (life cover, short-term) - "insurance" is generic last
     ("sanlam", "Insurance"),
     ("old mutual", "Insurance"),
     ("outsurance", "Insurance"),
@@ -167,7 +149,6 @@ _RULES: list[tuple[str, str]] = [
     ("1life", "Insurance"),
     ("hollard", "Insurance"),
     ("momentum", "Insurance"),
-    ("disc prem", "Insurance"),
     ("insurance", "Insurance"),
     # Investments
     ("easyequities", "Investments"),

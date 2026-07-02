@@ -37,8 +37,8 @@
 
   <entry>
     <category term="filter"></category>
-    <title>MzansiMoney: Axxess (internet)</title>
-    <apps:property name="from" value="axxess.co.za"/>
+    <title>MzansiMoney: Your ISP (internet)</title>
+    <apps:property name="from" value="your-isp.co.za"/>
     <apps:property name="hasTheWord" value="has:attachment"/>
     <apps:property name="label" value="MzansiMoney"/>
     <apps:property name="shouldNeverSpam" value="true"/>
@@ -46,8 +46,8 @@
 
   <entry>
     <category term="filter"></category>
-    <title>MzansiMoney: City of Cape Town (municipal)</title>
-    <apps:property name="from" value="capetown.gov.za"/>
+    <title>MzansiMoney: Your municipality (rates/utilities)</title>
+    <apps:property name="from" value="your-municipality.gov.za"/>
     <apps:property name="hasTheWord" value="has:attachment"/>
     <apps:property name="label" value="MzansiMoney"/>
     <apps:property name="shouldNeverSpam" value="true"/>

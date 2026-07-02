@@ -238,3 +238,163 @@ def _parse_date(value: str) -> Optional[date]:
             except ValueError:
                 pass
     return None
+
+
+# ---------------------------------------------------------------------------
+# Payment-details extraction
+# ---------------------------------------------------------------------------
+
+# Markers that signal the start of a banking / payment details section.
+# Extraction is ONLY attempted when one of these is present - a conservative
+# guard that stops bare digit runs in statements from becoming false positives.
+_BANKING_SECTION_MARKERS = (
+    "banking details",
+    "bank details",
+    "payment details",
+    "banking information",
+    "bank information",
+    "eft details",
+    "payable to",
+    "pay to the order",
+)
+
+# SA banks: (canonical name, [lowercase keywords to match in "Bank: …" context]).
+_SA_BANKS: list[tuple[str, list[str]]] = [
+    ("Standard Bank", ["standard bank"]),
+    ("FNB", ["first national bank", " fnb", "\nfnb"]),
+    ("ABSA", ["absa"]),
+    ("Nedbank", ["nedbank"]),
+    ("Capitec", ["capitec"]),
+    ("Investec", ["investec"]),
+    ("Discovery Bank", ["discovery bank", "discovery"]),
+    ("TymeBank", ["tymebank", "tyme bank"]),
+    ("African Bank", ["african bank"]),
+    ("Bidvest Bank", ["bidvest"]),
+]
+
+
+def extract_payment_details(text: str) -> dict:
+    """Extract SA bank payment details (payTo fields) from invoice PDF text.
+
+    Conservative: only returns fields with clear label-anchored matches inside a
+    banking-details section. Returns ``{}`` when no banking section is detected,
+    so statements and foreign invoices never yield false payment-detail data.
+
+    Fields returned (all optional, only when confidently found):
+        beneficiary, bank, accountNumber, branchCode, accountType, reference
+    """
+    low = text.lower()
+
+    # Locate the start of the banking-details section. If none is found, bail
+    # immediately - this is the primary false-positive guard.
+    section_start: Optional[int] = None
+    for marker in _BANKING_SECTION_MARKERS:
+        idx = low.find(marker)
+        if idx != -1 and (section_start is None or idx < section_start):
+            section_start = idx
+    if section_start is None:
+        return {}
+
+    # Work within a 600-character window from the section start.
+    region = text[section_start: section_start + 600]
+    region_low = region.lower()
+
+    result: dict = {}
+
+    # --- beneficiary ----------------------------------------------------------
+    # Near "payable to:", "pay to:", "account holder:", "beneficiary:"
+    ben_m = re.search(
+        r"(?:payable\s+to|pay\s+to|beneficiary|account\s*holder)[:\s]+([A-Za-z][^\n\r]{1,60})",
+        region, re.IGNORECASE,
+    )
+    if ben_m:
+        val = ben_m.group(1).strip().rstrip(".,")
+        # Must look like a name (not a bare number or a label word followed by nothing).
+        if len(val) >= 2 and not re.fullmatch(r"[\d\s]+", val):
+            result["beneficiary"] = val
+
+    # --- bank -----------------------------------------------------------------
+    # "Bank: <name>" or "Bank Name: <name>" within the region.
+    bank_label_m = re.search(r"bank(?:\s*name)?[:\s]+([^\n\r]{2,40})", region, re.IGNORECASE)
+    if bank_label_m:
+        ctx = bank_label_m.group(1).lower()
+        for name, keywords in _SA_BANKS:
+            if any(k.strip() in ctx for k in keywords):
+                result["bank"] = name
+                break
+    if "bank" not in result:
+        # Also match a bare bank name anywhere in the region (e.g. a line that
+        # IS the bank name with no label). Only do this inside the section.
+        for name, keywords in _SA_BANKS:
+            if any(k.strip() in region_low for k in keywords):
+                result["bank"] = name
+                break
+
+    # --- accountNumber --------------------------------------------------------
+    # Labels: "Account Number", "Account No", "Acc No", "Acc #".
+    # Allow spaces within the number (e.g. "62 123 4567") but stop at newlines.
+    acc_m = re.search(
+        r"(?:account\s*(?:number|no\.?|#)|acc(?:ount)?\s*(?:no\.?|#))[:\s]+([\d][\d \t]{4,14})",
+        region, re.IGNORECASE,
+    )
+    if acc_m:
+        raw = acc_m.group(1).strip()
+        digits = re.sub(r"[ \t]+", "", raw)
+        if 6 <= len(digits) <= 13:
+            result["accountNumber"] = digits
+
+    # --- branchCode -----------------------------------------------------------
+    # SA banks use 6-digit branch / universal branch codes.
+    branch_m = re.search(
+        r"(?:branch\s*code|universal\s*branch)[:\s]+([\d][\d \t]{0,10})",
+        region, re.IGNORECASE,
+    )
+    if branch_m:
+        raw = branch_m.group(1).strip()
+        digits = re.sub(r"[ \t]+", "", raw)
+        if len(digits) == 6:
+            result["branchCode"] = digits
+
+    # --- accountType ----------------------------------------------------------
+    actype_m = re.search(
+        r"account\s*type[:\s]+(cheque|current|savings)",
+        region, re.IGNORECASE,
+    )
+    if actype_m:
+        result["accountType"] = actype_m.group(1).capitalize()
+
+    # --- reference ------------------------------------------------------------
+    # Explicit label with colon: "Reference: INV00667", "Ref: JOB-001".
+    # Require a colon so that "reference when making payment" is not a match.
+    ref_m = re.search(
+        r"(?:payment\s*reference|reference|ref)\s*:\s*([A-Z0-9][A-Za-z0-9\-/]{2,30})",
+        region, re.IGNORECASE,
+    )
+    if ref_m:
+        ref_val = ref_m.group(1).strip()
+        # Reject bare currency-like values (e.g. "R850" from "Reference: R850").
+        if not re.fullmatch(r"[R$]\d+", ref_val, re.IGNORECASE):
+            result["reference"] = ref_val
+
+    # "Use your account number as reference" phrasing (no explicit value to grab,
+    # so copy the already-extracted accountNumber if present).
+    if "reference" not in result:
+        if re.search(
+            r"use\s+your\s+account\s+number\s+as\s+(?:(?:your|the)\s+)?(?:payment\s+)?reference",
+            region, re.IGNORECASE,
+        ):
+            if result.get("accountNumber"):
+                result["reference"] = result["accountNumber"]
+
+    # "Use INV00667 as reference" phrasing (explicit token).
+    if "reference" not in result:
+        use_m = re.search(
+            r"use\s+([A-Z0-9][A-Za-z0-9\-/]{2,30})\s+as\s+(?:(?:your|the)\s+)?(?:payment\s+)?reference",
+            text, re.IGNORECASE,
+        )
+        if use_m:
+            ref_val = use_m.group(1).strip()
+            if not re.fullmatch(r"[R$]\d+", ref_val, re.IGNORECASE):
+                result["reference"] = ref_val
+
+    return result

@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
-import { useBranding } from "../branding/context";
 import {
   biometricAvailable, biometricEnrolled, enrollBiometric, removeBiometric, setPin,
 } from "../lib/lock";
 import { setStatementPassword } from "../lib/data";
+import { getLoginAlerts, setLoginAlerts } from "../lib/notifications";
+import { useBackdropDismiss } from "../lib/useBackdropDismiss";
+import { useBranding } from "../branding/context";
 
 export default function SecuritySettings({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
@@ -18,6 +20,24 @@ export default function SecuritySettings({ onClose }: { onClose: () => void }) {
   const [bioOn, setBioOn] = useState(biometricEnrolled(uid));
   const [stmtPw, setStmtPw] = useState("");
   const [savingPw, setSavingPw] = useState(false);
+  const [loginAlerts, setLoginAlertsV] = useState(true);
+
+  useEffect(() => {
+    if (uid) void getLoginAlerts(uid).then(setLoginAlertsV);
+  }, [uid]);
+
+  async function toggleLoginAlerts() {
+    const next = !loginAlerts;
+    setLoginAlertsV(next); // optimistic
+    setError(null); setMsg(null);
+    try {
+      await setLoginAlerts(uid, next);
+      setMsg(next ? "Login alerts on - you'll be emailed about new-device sign-ins." : "Login alerts off.");
+    } catch {
+      setLoginAlertsV(!next); // revert
+      setError("Could not update login alerts.");
+    }
+  }
 
   async function saveStatementPw() {
     if (!stmtPw.trim()) return setError("Enter your statement password (account number).");
@@ -34,7 +54,7 @@ export default function SecuritySettings({ onClose }: { onClose: () => void }) {
   }
 
   async function changePin() {
-    if (!/^\d{4,6}$/.test(pin)) return setError("PIN must be 4-6 digits.");
+    if (!/^\d{6,12}$/.test(pin)) return setError("PIN must be 6-12 digits.");
     if (pin !== confirm) return setError("PINs don't match.");
     setBusy(true); setError(null); setMsg(null);
     try {
@@ -62,17 +82,18 @@ export default function SecuritySettings({ onClose }: { onClose: () => void }) {
   }
 
   const field = "w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 outline-none focus:border-indigo-500";
+  const dismiss = useBackdropDismiss(onClose);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" {...dismiss}>
+      <div className="w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-5">
         <div className="text-sm font-semibold text-neutral-200">Security</div>
 
         <div className="mt-4 text-xs uppercase tracking-wider text-neutral-500">Change PIN</div>
-        <input className={`${field} mt-2`} type="password" inputMode="numeric" maxLength={6}
-          placeholder="New PIN" value={pin} onChange={(e) => setPinV(e.target.value.replace(/\D/g, ""))} />
-        <input className={`${field} mt-2`} type="password" inputMode="numeric" maxLength={6}
-          placeholder="Confirm" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))} />
+        <input className={`${field} mt-2`} type="password" inputMode="numeric" maxLength={12}
+          placeholder="New PIN (6-12 digits)" value={pin} onChange={(e) => setPinV(e.target.value.replace(/\D/g, ""))} autoComplete="off" />
+        <input className={`${field} mt-2`} type="password" inputMode="numeric" maxLength={12}
+          placeholder="Confirm" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))} autoComplete="off" />
         <button className="mt-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
           disabled={busy} onClick={changePin}>Update PIN</button>
 
@@ -100,6 +121,20 @@ export default function SecuritySettings({ onClose }: { onClose: () => void }) {
               {savingPw ? "Saving…" : "Save"}
             </button>
           </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="text-xs uppercase tracking-wider text-neutral-500">Login alerts</div>
+          <label className="mt-2 flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-sm text-neutral-300">
+              Email me when a new device signs in
+              <span className="mt-0.5 block text-xs text-neutral-500">
+                Sent only for devices we haven't seen before.
+              </span>
+            </span>
+            <input type="checkbox" checked={loginAlerts} onChange={toggleLoginAlerts}
+              className="h-5 w-5 shrink-0 accent-indigo-500" />
+          </label>
         </div>
 
         {msg && <div className="mt-3 text-sm text-emerald-400">{msg}</div>}

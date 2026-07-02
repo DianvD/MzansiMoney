@@ -1,5 +1,13 @@
 # MzansiMoney
 
+> **BREAKING CHANGE — functions now require `OWNER_UID`.**
+> Every callable rejects requests unless `OWNER_UID` is set in `functions/.env`
+> and matches the caller's Firebase Auth UID. Existing self-hosters must add this
+> variable before redeploying or all function calls will fail. See
+> [docs/SETUP.md §5b](docs/SETUP.md) for the setup steps. If you deployed from
+> the initial release commit **a04da06**, also rotate `RECOVERY_TOKEN_SECRET` —
+> see [SECURITY.md](SECURITY.md) for details.
+
 A self-hostable **personal finance operating system**: one private source of truth
 for your money. Import your bank statements, see your balance, spending, income,
 category breakdown, bills, recurring payments, net worth, and a dedicated home-loan
@@ -50,10 +58,14 @@ To deploy your own copy to Firebase, see [docs/SETUP.md](docs/SETUP.md).
   back up your whole ledger to JSON, and an integrity check that flags any import
   whose live count drifts. Dry-run, confirm, and auto-snapshot before anything is
   deleted. See [docs/RECOVERY.md](docs/RECOVERY.md).
-- **More**: transactions search with tap-to-recategorize (it learns), recurring /
-  debit-order tracking, bills (overdue / upcoming / paid), net worth and savings
-  goals, a home-loan (bond) tracker, an app lock (PIN plus biometric), and an
-  installable PWA.
+- **Bills — "To pay"**: the Bills page extracts payment details (reference numbers,
+  amounts, bank accounts) from invoice PDFs and lets you mark bills paid once you've
+  transferred the money. Import skip warnings surface any rows that were skipped
+  during a statement import so nothing silently disappears.
+- **More**: transactions search (paginated) with tap-to-recategorize (it learns),
+  recurring / debit-order tracking, bills (overdue / upcoming / paid), net worth and
+  savings goals, a home-loan (bond) tracker, an app lock (PIN, 6–12 chars, plus
+  biometric), and an installable PWA.
 
 ## Stack
 
@@ -72,13 +84,33 @@ To deploy your own copy to Firebase, see [docs/SETUP.md](docs/SETUP.md).
 - **PDF statement parsing**: [docs/PDF_STATEMENTS.md](docs/PDF_STATEMENTS.md).
 - **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Privacy
+## Security
 
-Your financial data is private to you. Clients are read-only on the financial
-collections; only the backend (Cloud Functions, Admin SDK) writes them. Your own
-real statements belong in `examples/`, which is gitignored and must never be
+- **Owner gate (fail-closed):** every callable is rejected unless the caller's UID
+  matches the `OWNER_UID` env var. No open mode.
+- **Client read-only:** clients can never write transactions, bills, or the dedup
+  ledger directly — only the backend Admin SDK can.
+- **Secrets in Secret Manager:** `RECOVERY_TOKEN_SECRET`, `STATEMENT_KEY`,
+  `GMAIL_INTAKE_SECRET`, and `SMTP_PASS` are provisioned as Firebase Secrets.
+- **Encryption-at-rest:** statement files stored in Firebase Storage are encrypted
+  with AES-256-GCM before upload.
+- **HTTP security headers:** CSP, HSTS (2-year, preload), X-Frame-Options DENY, and
+  more are set on all hosting responses.
+- **Optional App Check:** reCAPTCHA v3 attestation on every callable (`ENFORCE_APP_CHECK`).
+
+Your own real statements belong in `examples/`, which is gitignored and must never be
 committed. Use the synthetic fixtures in `samples/` for development and tests.
 
 ## License
 
-[MIT](LICENSE).
+[FSL-1.1-MIT](LICENSE) (Functional Source License). In plain terms:
+
+- **Free to use, self-host, modify, and learn from** — personal use, internal use,
+  education, and research are all explicitly permitted.
+- **You may not sell MzansiMoney (or a derivative) as a competing product or
+  hosted service.**
+- **Each release automatically becomes plain [MIT](https://opensource.org/license/mit)
+  two years after publication.**
+
+Versions up to and including commit `a942404` were published under MIT and remain
+MIT. Everything after that is FSL-1.1-MIT.

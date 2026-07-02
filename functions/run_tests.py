@@ -9,9 +9,22 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-TESTS = ["_smoketest.py", "_parse_test.py", "_profile_test.py", "_pdftable_test.py",
-         "_dedup_test.py", "_homeloan_test.py", "_account_test.py",
-         "_recovery_test.py", "_applock_test.py"]
+TESTS = [
+    "_smoketest.py",
+    "_parse_test.py",
+    "_profile_test.py",
+    "_pdftable_test.py",
+    "_dedup_test.py",
+    "_homeloan_test.py",
+    "_account_test.py",
+    "_recovery_test.py",
+    "_applock_test.py",
+    "_cryptobox_test.py",
+    "_mailer_test.py",
+    "_notify_test.py",
+    "_bills_test.py",
+    "_classify_test.py",
+]
 
 
 def main() -> int:
