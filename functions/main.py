@@ -83,6 +83,9 @@ _MAX_PDF_BYTES = 15 * 1024 * 1024  # per-document PDF cap
 # CORS_ORIGINS env var overrides the default permissive "*".
 # ingest_email (on_request) is excluded because it's server-to-server (HMAC-gated).
 _cors_raw = (os.environ.get("CORS_ORIGINS") or "").strip()
+# nosemgrep: insecure-env-default-literal -- "*" is a documented CORS default, not a
+# secret. Callables use Bearer-token auth (no ambient cookies) and are owner-gated, so
+# CORS is not a security boundary here; self-hosters narrow it via the CORS_ORIGINS env.
 _CORS_ORIGINS: list[str] | str = [o.strip() for o in _cors_raw.split(",") if o.strip()] or "*"
 # Cap how many transaction fingerprints we record per import for provenance-aware
 # undo (recovery). A list this long is ~330 KB of doc id strings - comfortably
@@ -119,7 +122,7 @@ def _require_owner(req: https_fn.CallableRequest) -> str:
             https_fn.FunctionsErrorCode.FAILED_PRECONDITION,
             "Server is not configured with an owner account (set OWNER_UID).",
         )
-    if req.auth.uid != _OWNER_UID:
+    if not hmac.compare_digest(req.auth.uid, _OWNER_UID):
         raise https_fn.HttpsError(
             https_fn.FunctionsErrorCode.PERMISSION_DENIED,
             "This account is not authorized to use this application.",

@@ -49,6 +49,7 @@ def _config() -> Optional[dict]:
         "user": user,
         "password": password,
         "from": os.environ.get("MAIL_FROM") or user,
+        # nosemgrep: insecure-env-default-literal -- cosmetic email display name, not a secret.
         "from_name": os.environ.get("MAIL_FROM_NAME") or "MzansiMoney",
     }
 

@@ -28,6 +28,7 @@ _SAST = timezone(timedelta(hours=2))
 # the From header; falls back to "MzansiMoney" when unset.
 def _app_name() -> str:
     import os
+    # nosemgrep: insecure-env-default-literal -- cosmetic app name shown in emails, not a secret.
     return os.environ.get("MAIL_FROM_NAME") or "MzansiMoney"
 
 
