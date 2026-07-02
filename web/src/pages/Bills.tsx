@@ -4,6 +4,7 @@ import { groupBills, sumBills, type BillStatus } from "../lib/bills";
 import { MASK, money, shortDate, tsToDate } from "../lib/format";
 import Panel from "../components/Panel";
 import MerchantAvatar from "../components/MerchantAvatar";
+import BillPayCard from "../components/BillPayCard";
 
 interface Props {
   bills: Bill[];
@@ -22,6 +23,13 @@ export default function Bills({ bills, loading, hideAmounts, now }: Props) {
   const grouped = useMemo(() => groupBills(bills, now), [bills, now]);
   const mask = (v: string) => (hideAmounts ? MASK : v);
 
+  // "To pay" = unpaid bills that have EFT payment details (payTo set). These are
+  // actionable - the user can copy the details and mark the transfer done.
+  // Use !== true (not !b.paid) so undefined is treated as unpaid.
+  const toPay = useMemo(() => bills.filter((b) => b.paid !== true && b.payTo && (
+    b.payTo.beneficiary || b.payTo.accountNumber || b.payTo.bank
+  )), [bills]);
+
   if (loading) return <div className="py-20 text-center text-neutral-500">Loading…</div>;
 
   if (bills.length === 0)
@@ -35,6 +43,17 @@ export default function Bills({ bills, loading, hideAmounts, now }: Props) {
 
   return (
     <div className="space-y-6">
+      {toPay.length > 0 && (
+        <Panel
+          title={`To pay · ${toPay.length}`}
+          action={<span className="text-sm font-semibold tabular-nums text-amber-400">{mask(money(sumBills(toPay)))}</span>}
+        >
+          <div className="space-y-3">
+            {toPay.map((b) => <BillPayCard key={b.id} bill={b} hideAmounts={hideAmounts} now={now} />)}
+          </div>
+        </Panel>
+      )}
+
       {SECTIONS.map(({ key, title, tone }) => {
         const items = grouped[key];
         if (items.length === 0) return null;

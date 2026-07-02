@@ -49,8 +49,14 @@ def prepare_transactions(
     learned: dict[str, str] | None = None,
     account_type: str = CASH,
     account_number: str | None = None,
+    account_id_override: str | None = None,
 ) -> IngestPrep:
-    acct = account_id(institution, account, account_number)
+    # ``account_id_override`` lets the caller pin these rows to an *existing*
+    # account (resolved by account number, see ``main._canonical_account_id``) so
+    # the Institution dropdown can't fork one real account into two ids
+    # (``generic-1234567890`` vs ``nedbank-1234567890``). Falls back to the
+    # institution+number id for a genuinely new account.
+    acct = account_id_override or account_id(institution, account, account_number)
     acct_number = clean_account_number(account_number)
 
     # Pass 1: normalize so we can decide the fingerprint scheme for the WHOLE

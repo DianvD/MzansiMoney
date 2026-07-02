@@ -13,7 +13,15 @@ import { functions } from "../firebase";
 
 // ---- base64 helpers -----------------------------------------------------
 function bufToB64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  // Spread into String.fromCharCode can overflow the call stack on large buffers;
+  // process in 32 KB chunks to avoid that.
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 function b64ToBuf(b64: string): ArrayBuffer {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;

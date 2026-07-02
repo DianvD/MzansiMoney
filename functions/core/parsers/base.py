@@ -49,6 +49,12 @@ class BaseParser:
     # cash dashboard and carry inverted balance semantics. See model.normalize.
     account_type = "cash"
 
+    def __init__(self) -> None:
+        # Set by each parse call so callers can surface skipped-row counts without
+        # changing the list[RawTxn] return type. Default 0 until a parse runs.
+        self.rows_total: int = 0
+        self.rows_skipped: int = 0
+
     def parse(self, text: str) -> list[RawTxn]:  # pragma: no cover - interface
         raise NotImplementedError
 

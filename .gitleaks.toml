@@ -31,7 +31,7 @@ regexes = [
   # BURNED legacy dev fallback that existed in git history (the original public
   # release shipped this string before this branch removed it). Never a real
   # production secret; allowlisted so full-history scans stay green.
-  '''(?:moola|app)-recovery-dev-secret''',
+  '''app-recovery-dev-secret''',
 
   # Firebase WEB API keys are public by design — they identify the project and
   # are protected by Firestore rules, not kept secret. Allow the AIza... web-key

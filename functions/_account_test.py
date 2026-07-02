@@ -23,7 +23,7 @@ def test_extract_account_number():
 
 def test_account_id_is_number_not_label():
     a = account_id("Nedbank", "Cheque", "9876543210")
-    b = account_id("Nedbank", "MiGoals Plus (Salary)", "9876543210")
+    b = account_id("Nedbank", "Everyday Cheque (Salary)", "9876543210")
     c = account_id("Nedbank", "typo account name", " 9876543210 ")  # spaces tolerated
     assert a == b == c == "nedbank-9876543210", (a, b, c)
     # Without a number we still fall back to the institution+label slug.
@@ -42,7 +42,7 @@ def test_same_number_diff_label_dedups():
     ]
     p1 = prepare_transactions(rows, institution="Nedbank", account="Cheque",
                               source_document="s.csv", document_id="d1", account_number="9876543210")
-    p2 = prepare_transactions(rows, institution="Nedbank", account="MiGoals Plus (Salary)",
+    p2 = prepare_transactions(rows, institution="Nedbank", account="Everyday Cheque (Salary)",
                               source_document="s.csv", document_id="d2", account_number="9876543210")
     f1 = sorted(t.fingerprint for t in p1.transactions)
     f2 = sorted(t.fingerprint for t in p2.transactions)

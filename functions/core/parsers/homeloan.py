@@ -33,8 +33,9 @@ class HomeLoanParser(BaseParser):
     account_type = "home_loan"
 
     def parse(self, text: str) -> list[RawTxn]:
+        all_rows = self.sniff_rows(text)
         out: list[RawTxn] = []
-        for row in self.sniff_rows(text):
+        for row in all_rows:
             # A data row starts with a transaction date; metadata lines
             # ("Account Number : , ...") have no parseable date and are skipped.
             date = self.parse_date((row[0] or "").strip()) if row else None
@@ -70,4 +71,6 @@ class HomeLoanParser(BaseParser):
                 txn = self.make_txn(date, description, credit=abs(amount), raw={"row": row})
             if txn is not None:
                 out.append(txn)
+        self.rows_total = len(all_rows)
+        self.rows_skipped = len(all_rows) - len(out)
         return out

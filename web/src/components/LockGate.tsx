@@ -13,19 +13,41 @@ const IDLE_MS = 5 * 60 * 1000; // auto-lock after 5 minutes idle
 const LockCtx = createContext<{ lock: () => void }>({ lock: () => {} });
 export const useLock = () => useContext(LockCtx);
 
-type Phase = "loading" | "setup" | "locked" | "open";
+type Phase = "loading" | "setup" | "locked" | "open" | "error";
 
 export default function LockGate({ uid, children }: { uid: string; children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>("loading");
+  const [retrySignal, setRetrySignal] = useState(0);
 
   useEffect(() => {
     let alive = true;
     setPhase("loading");
-    hasPin(uid).then((has) => {
-      if (alive) setPhase(has ? "locked" : "setup");
-    }).catch(() => alive && setPhase("setup"));
+
+    // Exponential back-off: 1 s, 2 s, 4 s — then give up and show an error
+    // screen so the user can retry manually instead of sitting on a blank spinner.
+    let attempt = 0;
+    const maxAttempts = 3;
+    const delays = [1000, 2000, 4000];
+
+    async function tryLoad() {
+      try {
+        const has = await hasPin(uid);
+        if (alive) setPhase(has ? "locked" : "setup");
+      } catch {
+        attempt++;
+        if (!alive) return;
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, delays[attempt - 1]));
+          if (alive) void tryLoad();
+        } else {
+          setPhase("error");
+        }
+      }
+    }
+
+    void tryLoad();
     return () => { alive = false; };
-  }, [uid]);
+  }, [uid, retrySignal]);
 
   const lock = useCallback(() => setPhase((p) => (p === "open" ? "locked" : p)), []);
 
@@ -48,6 +70,21 @@ export default function LockGate({ uid, children }: { uid: string; children: Rea
 
   if (phase === "loading")
     return <Center><div className="text-neutral-500">Loading…</div></Center>;
+  if (phase === "error")
+    return (
+      <Center>
+        <div className="w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900/60 p-8 text-center">
+          <div className="text-neutral-300">Could not reach the server.</div>
+          <div className="mt-1 text-sm text-neutral-500">Check your connection and try again.</div>
+          <button
+            onClick={() => setRetrySignal((n) => n + 1)}
+            className="mt-5 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+          >
+            Retry
+          </button>
+        </div>
+      </Center>
+    );
   if (phase === "setup")
     return <PinSetup uid={uid} onDone={() => setPhase("open")} />;
   if (phase === "locked")
@@ -79,9 +116,8 @@ const pinInput =
 const primaryBtn =
   "mt-4 w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50";
 
-function validPin(p: string) {
-  return /^\d{4,6}$/.test(p);
-}
+const validPin = (p: string) => /^\d{4,12}$/.test(p);
+const validNewPin = (p: string) => /^\d{6,12}$/.test(p);
 
 function PinSetup({ uid, onDone }: { uid: string; onDone: () => void }) {
   const [pin, setPinV] = useState("");
@@ -91,7 +127,7 @@ function PinSetup({ uid, onDone }: { uid: string; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
-    if (!validPin(pin)) return setError("PIN must be 4-6 digits.");
+    if (!validNewPin(pin)) return setError("PIN must be 6-12 digits.");
     if (pin !== confirm) return setError("PINs don't match.");
     setBusy(true);
     setError(null);
@@ -110,12 +146,12 @@ function PinSetup({ uid, onDone }: { uid: string; onDone: () => void }) {
       <p className="mt-1 mb-5 text-center text-sm text-neutral-400">
         Set a PIN to lock the app. You'll enter it (or use biometrics) to open MzansiMoney.
       </p>
-      <input className={pinInput} type="password" inputMode="numeric" maxLength={6}
-        placeholder="••••" value={pin} onChange={(e) => setPinV(e.target.value.replace(/\D/g, ""))}
-        aria-label="New PIN" autoFocus />
-      <input className={`${pinInput} mt-3`} type="password" inputMode="numeric" maxLength={6}
+      <input className={pinInput} type="password" inputMode="numeric" maxLength={12}
+        placeholder="••••••" value={pin} onChange={(e) => setPinV(e.target.value.replace(/\D/g, ""))}
+        aria-label="New PIN" autoFocus autoComplete="off" />
+      <input className={`${pinInput} mt-3`} type="password" inputMode="numeric" maxLength={12}
         placeholder="Confirm" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))}
-        aria-label="Confirm PIN" />
+        aria-label="Confirm PIN" autoComplete="off" />
       {biometricAvailable() && (
         <label className="mt-3 flex items-center gap-2 text-sm text-neutral-300">
           <input type="checkbox" checked={useBio} onChange={(e) => setUseBio(e.target.checked)} />
@@ -146,7 +182,7 @@ function LockScreen({ uid, onUnlock }: { uid: string; onUnlock: () => void }) {
   }
 
   async function submit() {
-    if (!validPin(pin)) return setError("Enter your 4-6 digit PIN.");
+    if (!validPin(pin)) return setError("Enter your 4-12 digit PIN.");
     setBusy(true);
     setError(null);
     const ok = await verifyPin(uid, pin);
@@ -159,12 +195,12 @@ function LockScreen({ uid, onUnlock }: { uid: string; onUnlock: () => void }) {
   return (
     <Card>
       <p className="mt-1 mb-5 text-center text-sm text-neutral-400">Locked. Enter your PIN to continue.</p>
-      <input className={pinInput} type="password" inputMode="numeric" maxLength={6}
-        placeholder="••••" value={pin} autoFocus
+      <input className={pinInput} type="password" inputMode="numeric" maxLength={12}
+        placeholder="••••••" value={pin} autoFocus autoComplete="off"
         onChange={(e) => setPinV(e.target.value.replace(/\D/g, ""))}
-        onKeyDown={(e) => e.key === "Enter" && submit()} aria-label="PIN" />
+        onKeyDown={(e) => e.key === "Enter" && void submit()} aria-label="PIN" />
       {error && <div className="mt-3 text-sm text-rose-400">{error}</div>}
-      <button className={primaryBtn} disabled={busy} onClick={submit}>
+      <button className={primaryBtn} disabled={busy} onClick={() => void submit()}>
         {busy ? "Checking…" : "Unlock"}
       </button>
       {bio && (

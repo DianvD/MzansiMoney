@@ -4,6 +4,7 @@ web/dist/
 web/*.tsbuildinfo
 web/.env
 web/.env.local
+web/.env.production
 
 # Python functions
 functions/venv/
@@ -32,6 +33,7 @@ emulator.log
 functions/.env
 functions/.env.*
 !functions/.env.example
+functions/.secret.local
 
 # OS / editor
 .DS_Store

@@ -52,8 +52,13 @@ from the home-loan liability. **Privacy:** clients are read-only on the financia
 collections; only the backend (Admin SDK) writes them. Rules in `firestore.rules`.
 
 Callables: `import_csv`, `import_document`, `add_transaction`, `set_category`,
-`delete_transaction`, `set_statement_password`, and recovery (`revert_import`,
+`delete_transaction`, `update_bill`, `set_statement_password`, app lock (`set_app_pin`,
+`verify_app_pin`, `app_pin_status`), `record_login`, and recovery (`revert_import`,
 `export_ledger`, `audit_integrity`). HTTP `ingest_email` (Gmail Apps Script intake).
+**Every callable is owner-gated** (`_require_owner`: fail-closed `OWNER_UID` check);
+recovery confirmation tokens are single-use; Storage blobs (original documents +
+snapshots) are AES-256-GCM encrypted at rest (`cryptobox.encrypt_bytes`, `MZANSI1`
+envelope, legacy-plaintext read fallback).
 
 ## Backend layout (`functions/core/`)
 - `model.py` - `RawTxn`, `normalize`, merchant derivation.
@@ -68,8 +73,14 @@ Callables: `import_csv`, `import_document`, `add_transaction`, `set_category`,
   `nedbank.py`, `homeloan.py`, `__init__.py` (registry). Preferred way to support a new
   bank is a **learned parse profile**, not a parser subclass (see docs/PARSERS.md).
 - `profiles.py` / `profilestore.py` - parse-profile helpers + the Firestore store.
-- `recovery.py` - per-import undo / backup / audit + confirmation tokens (docs/RECOVERY.md).
-- `cryptobox.py` / `storage.py` - encrypted statement password / Storage retention.
+- `recovery.py` - per-import undo (provenance-aware) / backup / audit + single-use
+  confirmation tokens (docs/RECOVERY.md).
+- `cryptobox.py` / `storage.py` - AES-GCM crypto (statement password + blob envelope) /
+  encrypted Storage retention.
+- `applock.py` - PIN hashing (PBKDF2) + exponential lockout. `bills.py` - bill docs,
+  payment-details validation (`validate_bill_update`).
+- `mailer.py` / `notify.py` - fail-soft SMTP + security-alert emails (secret changes,
+  new-device logins).
 - `main.py` hosts the callables + the `ingest_email` HTTP endpoint.
 
 ## Branding
@@ -86,5 +97,6 @@ docs/SETUP.md. The decorators use `region=_REGION`, so never hardcode a region s
 
 ## Tests
 `functions/run_tests.py` runs the offline suite (parsers, profiles, PDF table, dedup,
-home-loan, account identity, recovery). `samples/` holds synthetic fixtures. Your own
-real statements go in `examples/` (gitignored, never commit).
+home-loan, account identity, recovery, cryptobox, app lock, mailer, notify, bills,
+classify). `samples/` holds synthetic fixtures. Your own real statements go in
+`examples/` (gitignored, never commit).

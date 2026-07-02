@@ -10,7 +10,7 @@ import {
   subscribeWatchlist,
   saveWatchlist,
   subscribeRecurringLists,
-  subscribeDashboardLayout,
+  subscribeUiSettings,
   saveDashboardLayout,
 } from "../lib/data";
 import { reconcileLayout, type DashboardLayout } from "../lib/dashboardLayout";
@@ -84,7 +84,7 @@ export default function Dashboard({ transactions, bills, loading, billsLoading, 
   const [editing, setEditing] = useState(false);
   useEffect(() => {
     if (!user) return;
-    return subscribeDashboardLayout(user.uid, (saved) => setLayout(reconcileLayout(saved)), () => {});
+    return subscribeUiSettings(user.uid, (s) => setLayout(reconcileLayout(s.dashboardLayout)), () => {});
   }, [user]);
   function updateLayout(next: DashboardLayout) {
     setLayout(next);

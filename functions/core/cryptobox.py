@@ -4,6 +4,10 @@ The plaintext is AES-256-GCM encrypted with a server-only key (STATEMENT_KEY,
 function env var - never in the repo or sent to the browser) and the ciphertext
 is kept in a backend-only Firestore doc. So even someone with database read
 access sees only ciphertext, and the browser can't read it at all (rules deny).
+
+``encrypt_bytes`` / ``decrypt_bytes`` provide the same cipher as a generic
+binary envelope for use with Cloud Storage blobs (snapshots, documents).
+Envelope format: MAGIC_PREFIX (7 bytes) + 12-byte nonce + AES-256-GCM ciphertext.
 """
 from __future__ import annotations
 
@@ -13,6 +17,9 @@ from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from firebase_admin import firestore
+
+# 7-byte magic prefix used to distinguish encrypted blobs from legacy plaintext.
+_MAGIC = b"MZANSI1"
 
 
 def _key() -> Optional[bytes]:
@@ -45,6 +52,47 @@ def decrypt(blob: dict) -> Optional[str]:
         return AESGCM(key).decrypt(nonce, ct, None).decode("utf-8")
     except Exception:
         return None
+
+
+
+# ---- generic blob encryption -----------------------------------------------
+
+def encrypt_bytes(data: bytes) -> bytes:
+    """Encrypt raw bytes using AES-256-GCM. Returns MAGIC + nonce + ciphertext.
+
+    Raises RuntimeError when STATEMENT_KEY is not configured or invalid
+    (fail-closed: callers must not silently upload plaintext if encryption fails).
+    """
+    key = _key()
+    if not key:
+        raise RuntimeError(
+            "STATEMENT_KEY is not configured or invalid. "
+            "Set it as a Functions secret (see docs/SETUP.md)."
+        )
+    nonce = os.urandom(12)
+    ct = AESGCM(key).encrypt(nonce, data, None)
+    return _MAGIC + nonce + ct
+
+
+def decrypt_bytes(data: bytes) -> bytes:
+    """Decrypt bytes produced by ``encrypt_bytes``.
+
+    Raises ValueError when the data does not start with the expected magic
+    prefix (caller should use ``_maybe_decrypt`` for the legacy-fallback path).
+    Raises RuntimeError when the key is missing (same fail-closed rule as above).
+    """
+    if not data.startswith(_MAGIC):
+        raise ValueError(
+            f"Invalid envelope: expected magic prefix {_MAGIC!r}, "
+            f"got {data[:len(_MAGIC)]!r}. "
+            "Use _maybe_decrypt() for legacy-plaintext fallback."
+        )
+    key = _key()
+    if not key:
+        raise RuntimeError("STATEMENT_KEY is not configured or invalid.")
+    nonce = data[len(_MAGIC): len(_MAGIC) + 12]
+    ct = data[len(_MAGIC) + 12:]
+    return AESGCM(key).decrypt(nonce, ct, None)
 
 
 def _ref(db, uid: str):

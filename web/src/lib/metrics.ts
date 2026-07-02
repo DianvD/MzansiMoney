@@ -11,8 +11,72 @@ function toDate(ts: Timestamp | null | undefined): Date | null {
 }
 
 /**
- * Current balance, account-aware. For each account use its most recent
- * (by date) transaction that carries a running balance; if an account has no
+ * The current running balance for ONE account, given its balance-carrying
+ * transactions. The current balance is the running balance on the
+ * chronologically-last transaction - but dates are stored at day granularity, so
+ * several transactions on the most recent day all tie on `getTime()`. Picking by
+ * date alone then returns an arbitrary intra-day row (whichever sorts first),
+ * which is off by exactly the amount(s) posted after it - e.g. a closing PayShap
+ * fee makes the headline read R10 high.
+ *
+ * We break the same-day tie by following the running-balance chain: each row's
+ * "balance before" (`balance - signedAmount`) equals the previous row's "balance
+ * after". The end-of-day row is the one whose balance is never another same-day
+ * row's starting point. That test fails when the day's chain is a CYCLE - e.g. a
+ * debit and its same-day reversal (a R861 licence renewal + its R861 refund):
+ * each row's balance is the other's start, so no row looks like an "end". For
+ * that case we anchor on the previous day's closing balance and walk the day's
+ * chain forward; the walk is order-independent, so Firestore's arbitrary
+ * intra-day doc order can't skew the result. Only if the walk can't consume the
+ * whole day (a missing row splits the chain, or a start value repeats) do we
+ * fall back to a stable latest-day row - no worse than before.
+ */
+export function currentBalance(withBalance: Transaction[]): number | null {
+  if (!withBalance.length) return null;
+  const ms = (t: Transaction) => toDate(t.date)?.getTime() ?? 0;
+  const maxMs = withBalance.reduce((m, t) => Math.max(m, ms(t)), -Infinity);
+  const day = withBalance.filter((t) => ms(t) === maxMs);
+  if (day.length === 1) return day[0].balance as number;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const starts = new Set(day.map((t) => r2((t.balance as number) - t.signedAmount)));
+  const ends = day.filter((t) => !starts.has(r2(t.balance as number)));
+  if (ends.length === 1) return ends[0].balance as number;
+  const anchor = currentBalance(withBalance.filter((t) => ms(t) < maxMs));
+  if (anchor != null) {
+    const walked = walkDayChain(day, r2(anchor), r2);
+    if (walked != null) return walked;
+  }
+  return day[day.length - 1].balance as number;
+}
+
+/**
+ * Walk one day's rows as a running-balance chain starting from `anchor` (the
+ * previous day's closing balance). Returns the final balance only when every
+ * row is consumed exactly once - a partial walk means the chain is genuinely
+ * ambiguous and the caller should fall back.
+ */
+function walkDayChain(
+  day: Transaction[],
+  anchor: number,
+  r2: (n: number) => number,
+): number | null {
+  const remaining = [...day];
+  let cur = anchor;
+  let last: number | null = null;
+  while (remaining.length) {
+    const idx = remaining.findIndex(
+      (t) => r2((t.balance as number) - t.signedAmount) === cur,
+    );
+    if (idx === -1) return null;
+    cur = r2(remaining.splice(idx, 1)[0].balance as number);
+    last = cur;
+  }
+  return last;
+}
+
+/**
+ * Current balance, account-aware. For each account use the running balance on its
+ * chronologically-last transaction (see `currentBalance`); if an account has no
  * balances, fall back to the signed sum of its transactions. Then sum across
  * accounts - so the headline is correct once a second account exists.
  */
@@ -28,14 +92,8 @@ export function computeBalance(txns: Transaction[]): number | null {
     const withBalance = list.filter(
       (t) => typeof t.balance === "number" && !Number.isNaN(t.balance),
     );
-    if (withBalance.length) {
-      const latest = withBalance.reduce((a, b) =>
-        (toDate(a.date)?.getTime() ?? 0) >= (toDate(b.date)?.getTime() ?? 0) ? a : b,
-      );
-      total += latest.balance as number;
-    } else {
-      total += list.reduce((s, t) => s + t.signedAmount, 0);
-    }
+    const bal = currentBalance(withBalance);
+    total += bal != null ? bal : list.reduce((s, t) => s + t.signedAmount, 0);
   }
   return total;
 }

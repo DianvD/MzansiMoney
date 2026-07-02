@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Transaction } from "../types";
 import { CATEGORIES } from "../lib/categories";
 import { deleteTransaction, setCategory } from "../lib/data";
+import { useBackdropDismiss } from "../lib/useBackdropDismiss";
 
 interface Props {
   txn: Transaction;
@@ -40,14 +41,15 @@ export default function CategoryEditor({ txn, onClose }: Props) {
     }
   }
 
+  const dismiss = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
+      {...dismiss}
     >
       <div
         className="w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-5"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="text-sm font-semibold text-neutral-200">Change category</div>
         <div className="mt-1 truncate text-xs text-neutral-500">{txn.merchant}</div>
@@ -64,7 +66,7 @@ export default function CategoryEditor({ txn, onClose }: Props) {
 
         <label className="mt-3 flex items-center gap-2 text-sm text-neutral-300">
           <input type="checkbox" checked={applyToMerchant} onChange={(e) => setApply(e.target.checked)} />
-          Apply to all “{txn.merchant}” and learn for future imports
+          Apply to all "{txn.merchant}" and learn for future imports
         </label>
 
         {error && <div className="mt-3 text-sm text-rose-400">{error}</div>}

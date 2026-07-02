@@ -4,6 +4,7 @@
 
 import type { AccountType, Transaction } from "../types";
 import { tsToDate } from "./format";
+import { currentBalance } from "./metrics";
 
 export const ALL_ACCOUNTS = "all";
 
@@ -46,8 +47,7 @@ export function deriveAccounts(txns: Transaction[], labels: Record<string, strin
     count: number;
     latestMs: number;
     latestDate: Date | null;
-    balanceMs: number;
-    balance: number | null;
+    balanceTxns: Transaction[];
   }
   const map = new Map<string, Acc>();
 
@@ -65,8 +65,7 @@ export function deriveAccounts(txns: Transaction[], labels: Record<string, strin
         count: 0,
         latestMs: -Infinity,
         latestDate: null,
-        balanceMs: -Infinity,
-        balance: null,
+        balanceTxns: [],
       };
       map.set(id, a);
     }
@@ -80,10 +79,9 @@ export function deriveAccounts(txns: Transaction[], labels: Record<string, strin
       a.latestMs = ms;
       a.latestDate = d;
     }
-    if (t.balance != null && ms > a.balanceMs) {
-      a.balanceMs = ms;
-      a.balance = t.balance;
-    }
+    // Collect balance-carrying rows; the current balance is picked by the chain-
+    // aware helper at the end (day-granular dates tie, so we can't just take max).
+    if (t.balance != null) a.balanceTxns.push(t);
   }
 
   const accounts: Account[] = [...map.values()].map((a) => {
@@ -99,7 +97,7 @@ export function deriveAccounts(txns: Transaction[], labels: Record<string, strin
       accountType: a.accountType,
       count: a.count,
       latestDate: a.latestDate,
-      balance: a.balance,
+      balance: currentBalance(a.balanceTxns),
     };
   });
 
